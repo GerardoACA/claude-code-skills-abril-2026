@@ -84,14 +84,13 @@ curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
 
 ## Modelos de Claude
 
-Por defecto se usa `claude-haiku-4-5` (el más económico y rápido, ideal para alto
-volumen de mensajería). Puedes subir a `claude-sonnet-4-6` o `claude-opus-4-8`
-cambiando `CLAUDE_MODEL` en `.env`.
+Por defecto se usa `claude-sonnet-4-6`: el mejor equilibrio entre calidad,
+latencia y costo para un chatbot de alto volumen con *tool use*. Para máxima
+capacidad, sube a `claude-opus-4-8` cambiando `CLAUDE_MODEL` en `.env`.
 
-> ⚠️ Haiku 4.5 **no** soporta `effort` ni *adaptive thinking* (devolverían 400).
-> `claude_client.py` lo detecta automáticamente y no envía esos parámetros en
-> Haiku; sí los usa en Sonnet 4.6 / Opus 4.x. La calificación de leads usa
-> *structured outputs*, que Haiku 4.5 sí soporta.
+> ℹ️ Sonnet 4.6 y Opus 4.x usan `effort` y *adaptive thinking*. Haiku 4.5 y los
+> Sonnet 4.5/anteriores no los soportan (darían 400); `claude_client.py` lo
+> detecta y omite esos parámetros automáticamente según el modelo configurado.
 
 ## Agendado conversacional (tool use)
 
