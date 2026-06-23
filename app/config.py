@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # Claude / Anthropic
     anthropic_api_key: str = ""
-    claude_model: str = "claude-opus-4-8"
+    claude_model: str = "claude-haiku-4-5"
 
     # Embeddings (Voyage AI)
     voyage_api_key: str = ""

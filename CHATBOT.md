@@ -84,9 +84,27 @@ curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
 
 ## Modelos de Claude
 
-Por defecto se usa `claude-opus-4-8` (el más capaz). Para alto volumen puedes
-cambiar `CLAUDE_MODEL` en `.env` a `claude-sonnet-4-6` (mejor costo/latencia) o
-`claude-haiku-4-5` (el más económico) — es decisión tuya según el presupuesto.
+Por defecto se usa `claude-haiku-4-5` (el más económico y rápido, ideal para alto
+volumen de mensajería). Puedes subir a `claude-sonnet-4-6` o `claude-opus-4-8`
+cambiando `CLAUDE_MODEL` en `.env`.
+
+> ⚠️ Haiku 4.5 **no** soporta `effort` ni *adaptive thinking* (devolverían 400).
+> `claude_client.py` lo detecta automáticamente y no envía esos parámetros en
+> Haiku; sí los usa en Sonnet 4.6 / Opus 4.x. La calificación de leads usa
+> *structured outputs*, que Haiku 4.5 sí soporta.
+
+## Agendado conversacional (tool use)
+
+El bot agenda citas dentro del chat usando dos herramientas que Claude invoca
+según la conversación (`app/core/scheduling.py`):
+
+- `get_available_slots` → consulta Google Calendar y devuelve horarios libres.
+- `book_appointment` → crea el evento (con enlace de Meet), guarda la cita en BD
+  y marca el lead como `scheduled`.
+
+El flujo: el cliente pide consulta → Claude propone 2-3 horarios en lenguaje
+natural → el cliente elige (y opcionalmente da su correo) → Claude confirma y
+reserva. `claude_client.generate_reply` ejecuta el bucle de tool use.
 
 ## Consideraciones legales (importante en un despacho)
 
@@ -98,7 +116,7 @@ cambiar `CLAUDE_MODEL` en `.env` a `claude-sonnet-4-6` (mejor costo/latencia) o
 
 ## Siguientes pasos (roadmap)
 
-- [ ] Flujo de agendado conversacional (que el bot ofrezca y confirme horarios con `calendar.py`).
+- [x] Flujo de agendado conversacional (tool use con `get_available_slots` / `book_appointment`).
 - [ ] Mensaje inicial con aviso de privacidad/consentimiento.
 - [ ] Panel de control y métricas (leads por canal, conversión a cita).
 - [ ] Seguimiento automático (recordatorios con plantillas de WhatsApp).

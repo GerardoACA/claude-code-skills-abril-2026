@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import channels
-from app.core import claude_client, handoff, lead_scoring, rag
+from app.core import claude_client, handoff, lead_scoring, rag, scheduling
 from app.models import (
     Channel,
     Contact,
@@ -125,7 +125,14 @@ def handle_incoming(
 
     context_chunks = [c.content for c in rag.retrieve(session, text, k=5)]
     history = _history_for_claude(session, conv)
-    reply = claude_client.generate_reply(text, context_chunks, history)
+    executor = scheduling.make_executor(session, contact)
+    reply = claude_client.generate_reply(
+        text,
+        context_chunks,
+        history,
+        tools=scheduling.TOOLS,
+        tool_executor=executor,
+    )
 
     session.add(
         Message(conversation_id=conv.id, direction=Direction.outbound, text=reply)
