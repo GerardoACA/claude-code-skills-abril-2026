@@ -8,6 +8,8 @@ venv/
 # Entorno y secretos
 .env
 google_credentials.json
+google_client_secret.json
+google_token.json
 *.pem
 
 # Datos

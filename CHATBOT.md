@@ -76,17 +76,27 @@ curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
   -d secret_token="$TELEGRAM_WEBHOOK_SECRET"
 ```
 
-### Google Calendar
-1. Crea una **Service Account** en Google Cloud y descarga el JSON a `google_credentials.json`.
-2. Habilita la *Google Calendar API*.
-3. Comparte el calendario del despacho con el correo de la Service Account (permiso
-   *"Hacer cambios en eventos"*).
-4. Pon ese calendario en `GOOGLE_CALENDAR_ID`.
-5. **Prueba la conexión** antes de seguir:
+### Google Calendar — camino OAuth (recomendado, cuenta personal)
+Para una cuenta como `formato212@gmail.com`:
+1. En https://console.cloud.google.com crea un proyecto y habilita la *Google Calendar API*.
+2. En **Credenciales → Crear credenciales → ID de cliente de OAuth → App de escritorio**,
+   descarga el JSON y guárdalo como `google_client_secret.json` en la raíz.
+3. Genera el token (una sola vez; abre el navegador para autorizar):
+   ```bash
+   python -m scripts.google_oauth
+   ```
+4. Prueba la conexión:
    ```bash
    python -m scripts.test_calendar                   # lista horarios libres
    python -m scripts.test_calendar --book tu@correo  # crea una cita de prueba
    ```
+`GOOGLE_CALENDAR_ID` ya apunta a `formato212@gmail.com`.
+
+### Google Calendar — camino Service Account (alternativo, para producción)
+Si prefieres que el servidor no dependa de un login: crea una Service Account,
+descarga su JSON a `google_credentials.json`, habilita la API y comparte el
+calendario con el correo de la Service Account (permiso *"Hacer cambios en eventos"*).
+El código usa OAuth si existe `google_token.json`; si no, cae a la Service Account.
 
 ## Aviso de privacidad y consentimiento (LFPDPPP)
 

@@ -42,8 +42,12 @@ class Settings(BaseSettings):
     privacy_notice_url: str = ""
 
     # Google Calendar
+    # Camino OAuth (recomendado para una cuenta personal como formato212@gmail.com):
+    google_oauth_client_file: str = "./google_client_secret.json"  # client_secret descargado de Google Cloud
+    google_oauth_token_file: str = "./google_token.json"           # token generado por scripts.google_oauth
+    # Camino Service Account (alternativo):
     google_credentials_file: str = "./google_credentials.json"
-    google_calendar_id: str = "primary"
+    google_calendar_id: str = "formato212@gmail.com"
     default_timezone: str = "America/Mexico_City"
 
     # Graph API

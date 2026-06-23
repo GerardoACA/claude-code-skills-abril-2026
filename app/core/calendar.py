@@ -7,9 +7,13 @@ calendario con el correo de la Service Account y usa su ID en GOOGLE_CALENDAR_ID
 from __future__ import annotations
 
 import datetime as dt
+import os
+import pathlib
 import uuid
 
+from google.auth.transport.requests import Request
 from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials as UserCredentials
 from googleapiclient.discovery import build
 
 from app.config import settings
@@ -18,13 +22,29 @@ _SCOPES = ["https://www.googleapis.com/auth/calendar"]
 _service = None
 
 
+def _load_credentials():
+    """Carga credenciales OAuth de usuario (preferido) o de Service Account.
+
+    - Si existe el token OAuth (google_oauth_token_file), lo usa y lo refresca.
+      Es el camino para una cuenta personal como formato212@gmail.com.
+    - Si no, cae a Service Account (google_credentials_file).
+    """
+    token_file = settings.google_oauth_token_file
+    if token_file and os.path.exists(token_file):
+        creds = UserCredentials.from_authorized_user_file(token_file, _SCOPES)
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            pathlib.Path(token_file).write_text(creds.to_json())
+        return creds
+    return service_account.Credentials.from_service_account_file(
+        settings.google_credentials_file, scopes=_SCOPES
+    )
+
+
 def _calendar():
     global _service
     if _service is None:
-        creds = service_account.Credentials.from_service_account_file(
-            settings.google_credentials_file, scopes=_SCOPES
-        )
-        _service = build("calendar", "v3", credentials=creds, cache_discovery=False)
+        _service = build("calendar", "v3", credentials=_load_credentials(), cache_discovery=False)
     return _service
 
 
