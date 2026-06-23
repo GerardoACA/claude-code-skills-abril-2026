@@ -63,6 +63,10 @@ class Contact(Base):
     channel: Mapped[Channel] = mapped_column(Enum(Channel), nullable=False)
     external_id: Mapped[str] = mapped_column(String(128), nullable=False)  # phone, chat_id, IGSID
     name: Mapped[str | None] = mapped_column(String(255))
+    # Consentimiento de privacidad (LFPDPPP)
+    consent_prompted: Mapped[bool] = mapped_column(default=False)  # ya se le envió el aviso
+    consent_given: Mapped[bool] = mapped_column(default=False)     # aceptó el aviso
+    consent_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     conversations: Mapped[list["Conversation"]] = relationship(back_populates="contact")

@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import channels
-from app.core import claude_client, handoff, lead_scoring, rag, scheduling
+from app.core import claude_client, consent, handoff, lead_scoring, rag, scheduling
 from app.models import (
     Channel,
     Contact,
@@ -121,6 +121,16 @@ def handle_incoming(
 
     # Si un abogado ya tomó el control, el bot guarda pero no responde.
     if conv.human_takeover:
+        return
+
+    # Gate de consentimiento (LFPDPPP): no procesamos consultas sin aceptación.
+    consent_reply = consent.process(session, contact, text)
+    if consent_reply is not None:
+        session.add(
+            Message(conversation_id=conv.id, direction=Direction.outbound, text=consent_reply)
+        )
+        session.commit()
+        channels.send(channel, external_id, consent_reply)
         return
 
     context_chunks = [c.content for c in rag.retrieve(session, text, k=5)]

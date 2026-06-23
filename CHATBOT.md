@@ -79,8 +79,30 @@ curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
 ### Google Calendar
 1. Crea una **Service Account** en Google Cloud y descarga el JSON a `google_credentials.json`.
 2. Habilita la *Google Calendar API*.
-3. Comparte el calendario del despacho con el correo de la Service Account (permiso de edición).
+3. Comparte el calendario del despacho con el correo de la Service Account (permiso
+   *"Hacer cambios en eventos"*).
 4. Pon ese calendario en `GOOGLE_CALENDAR_ID`.
+5. **Prueba la conexión** antes de seguir:
+   ```bash
+   python -m scripts.test_calendar                   # lista horarios libres
+   python -m scripts.test_calendar --book tu@correo  # crea una cita de prueba
+   ```
+
+## Aviso de privacidad y consentimiento (LFPDPPP)
+
+Ante un contacto nuevo, el bot envía primero el **aviso de privacidad** y espera
+que responda *ACEPTO* antes de procesar cualquier consulta (`app/core/consent.py`).
+Personaliza el enlace al aviso integral con `PRIVACY_NOTICE_URL` en `.env`, y el
+texto editando `consent.py`.
+
+> ⚠️ **Cambio de esquema:** se añadieron columnas de consentimiento a `contacts`.
+> En una BD nueva se crean solas. Si ya tenías la BD del MVP anterior, recréala
+> (`docker compose down -v && docker compose up -d db`) o aplica:
+> ```sql
+> ALTER TABLE contacts ADD COLUMN consent_prompted boolean DEFAULT false;
+> ALTER TABLE contacts ADD COLUMN consent_given boolean DEFAULT false;
+> ALTER TABLE contacts ADD COLUMN consent_at timestamptz;
+> ```
 
 ## Modelos de Claude
 
@@ -116,7 +138,7 @@ reserva. `claude_client.generate_reply` ejecuta el bucle de tool use.
 ## Siguientes pasos (roadmap)
 
 - [x] Flujo de agendado conversacional (tool use con `get_available_slots` / `book_appointment`).
-- [ ] Mensaje inicial con aviso de privacidad/consentimiento.
+- [x] Mensaje inicial con aviso de privacidad/consentimiento (LFPDPPP).
 - [ ] Panel de control y métricas (leads por canal, conversión a cita).
 - [ ] Seguimiento automático (recordatorios con plantillas de WhatsApp).
 - [ ] Migraciones con Alembic (hoy se usa `create_all` para el MVP).

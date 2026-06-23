@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # Handoff al abogado
     lawyer_telegram_chat_id: str = ""
 
+    # Privacidad / consentimiento (LFPDPPP)
+    privacy_notice_url: str = ""
+
     # Google Calendar
     google_credentials_file: str = "./google_credentials.json"
     google_calendar_id: str = "primary"
