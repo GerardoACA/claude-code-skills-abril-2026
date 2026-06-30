@@ -1,0 +1,575 @@
+// CERBERUS COMERCIO EXTERIOR — modelo de datos (Prisma schema). NO es SIDF.
+// ============================================================================
+// PRODUCTO: CERBERUS COMERCIO EXTERIOR (SaaS nuevo). NO es SIDF.
+//
+// Schema único (Agente B es el ÚNICO dueño). Incluye los modelos mínimos de
+// Fase 0/1 con las "reservas" del diseño v2 (§4): Partida/Valoración reservadas,
+// máquina de estados del despacho, tres expedientes separados, capa probatoria.
+//
+// Convenciones DURAS del blueprint:
+//  - Multi-tenant: toda tabla salvo `Tenant` lleva `tenantId @map("tenant_id")`.
+//  - Hashing probatorio: SHA-256 hex (64 chars) -> @db.Char(64).
+//  - Estado probatorio del artefacto: EVIDENCIA_PRELIMINAR | PRUEBA_OPONIBLE.
+//  - Bitácora append-only con encadenamiento (sha256 + hashPrev).
+// ============================================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ============================================================================
+// Enums
+// ============================================================================
+
+/// Roles de aplicación dentro de un tenant (autorización a nivel app; el JWT
+/// transporta `tenantId` y `rol`).
+enum RolUsuario {
+  ADMIN
+  AGENTE
+  OPERADOR
+  AUDITOR
+  AUTORIDAD
+}
+
+/// Tipo de aviso de privacidad publicado (alineado al módulo de privacidad).
+enum TipoAviso {
+  INTEGRAL
+  CORTO_CAPTURA
+}
+
+/// Estado del Certificado de Sello Digital del importador (CFF 17-H / 17-H Bis).
+enum EstadoCsd {
+  ACTIVO
+  RESTRINGIDO
+  CANCELADO
+}
+
+/// Etapa del cliente frente al procedimiento del art. 69-B CFF (empresas que
+/// facturan operaciones simuladas — EFOS/EDOS).
+enum Etapa69b {
+  NINGUNA
+  PRESUNTO
+  DESVIRTUADO
+  DEFINITIVO
+  SENTENCIA_FAVORABLE
+}
+
+/// Estado de vigencia del encargo conferido (B14/B21), verificado por operación.
+enum EstadoEncargo {
+  VIGENTE
+  REVOCADO
+  VENCIDO
+}
+
+/// Estado probatorio de un artefacto/documento en la capa de prueba.
+/// PRELIMINAR = evidencia preliminar (sello local); OPONIBLE = prueba oponible
+/// (sello calificado PSC/TSA, NOM-151).
+enum EstadoProbatorio {
+  EVIDENCIA_PRELIMINAR
+  PRUEBA_OPONIBLE
+}
+
+/// Máquina de estados del despacho de importación (entidad propia; la
+/// incidencia del rojo es un estado).
+enum EstadoDespacho {
+  ARMADO
+  PREVALIDADO
+  PRESENTACION_PENDIENTE
+  SELECCION
+  VERDE
+  ROJO
+  INCIDENCIA
+  DOSSIER_GENERADO
+}
+
+/// Estados de la alerta 69-B (seis estados). Es ALERTA, no bloqueo.
+enum Estado69b {
+  PRESUNTO
+  DESVIRTUADO
+  DEFINITIVO
+  SENTENCIA_FAVORABLE
+  OVERRIDE
+  CERRADO
+}
+
+// ============================================================================
+// Raíz multi-tenant
+// ============================================================================
+
+/// Tenant = agencia aduanal / agente (rol LFPDPPP: Responsable). Modelo raíz:
+/// NO lleva tenantId. Todo lo demás cuelga de aquí.
+model Tenant {
+  id          String   @id @default(cuid())
+  /// Nombre comercial / razón social.
+  nombre      String
+  /// RFC del tenant.
+  rfc         String   @unique
+  activo      Boolean  @default(true)
+  creadoEn    DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  usuarios                  Usuario[]
+  contratosEncargo          ContratoEncargo[]
+  clientes                  Cliente[]
+  patentes                  Patente[]
+  personasFisicas           PersonaFisicaAutorizada[]
+  encargosConferidos        EncargoConferido[]
+  expedientesKyc            ExpedienteKyc1414[]
+  expedientesProbatorio     ExpedienteProbatorioDespacho[]
+  expedientesDoble          ExpedienteDoble3142[]
+  documentos                Documento[]
+  operaciones               Operacion[]
+  partidas                  Partida[]
+  alertas69b                Alerta69b[]
+  versionesAviso            VersionAviso[]
+  consentimientos           ConsentimientoDatos[]
+  bitacora                  BitacoraAuditoria[]
+
+  @@map("tenant")
+}
+
+/// Usuario operador del tenant. Autenticación vía NextAuth (JWT con tenantId+rol).
+model Usuario {
+  id         String     @id @default(cuid())
+  tenantId   String     @map("tenant_id")
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  email      String
+  nombre     String
+  rol        RolUsuario @default(OPERADOR)
+  /// Hash de credencial (si aplica autenticación local).
+  passwordHash String?  @map("password_hash")
+  activo     Boolean    @default(true)
+  creadoEn   DateTime   @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  @@unique([tenantId, email])
+  @@index([tenantId, rol])
+  @@map("usuario")
+}
+
+/// Contrato de encargo LFPDPPP por tenant (instrucciones, subencargados).
+/// Condición bloqueante del panel (Fase 0).
+model ContratoEncargo {
+  id            String   @id @default(cuid())
+  tenantId      String   @map("tenant_id")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Etiqueta de versión del contrato, p. ej. "v1".
+  version       String
+  /// Instrucciones del responsable al encargado.
+  instrucciones String
+  /// Subencargados autorizados (lista libre / JSON serializado).
+  subencargados String?
+  vigenteDesde  DateTime @default(now()) @map("vigente_desde")
+  vigenteHasta  DateTime? @map("vigente_hasta")
+  /// SHA-256 del cuerpo del contrato (prueba de qué se firmó).
+  sha256        String?  @db.Char(64)
+
+  @@unique([tenantId, version])
+  @@index([tenantId, vigenteHasta])
+  @@map("contrato_encargo")
+}
+
+// ============================================================================
+// Importador / actores
+// ============================================================================
+
+/// Cliente / Importador del tenant.
+model Cliente {
+  id         String    @id @default(cuid())
+  tenantId   String    @map("tenant_id")
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  rfc        String
+  razonSocial String   @map("razon_social")
+  /// Estado del Certificado de Sello Digital (CFF 17-H / 17-H Bis).
+  estadoCsd  EstadoCsd @default(ACTIVO) @map("estado_csd")
+  /// Etapa frente al art. 69-B CFF.
+  etapa69b   Etapa69b  @default(NINGUNA) @map("etapa_69b")
+  creadoEn   DateTime  @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  expedienteKyc        ExpedienteKyc1414?
+  expedienteProbatorio ExpedienteProbatorioDespacho?
+  expedienteDoble      ExpedienteDoble3142?
+  encargosConferidos   EncargoConferido[]
+  operaciones          Operacion[]
+  alertas69b           Alerta69b[]
+
+  @@unique([tenantId, rfc])
+  @@index([tenantId, estadoCsd])
+  @@index([tenantId, etapa69b])
+  @@map("cliente")
+}
+
+/// Patente aduanal del tenant. Atribución por acto (acto crítico se firma y se
+/// atribuye a una persona física + patente).
+model Patente {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  numero    String
+  /// Titular de la patente (nombre legible).
+  titular   String?
+  activa    Boolean  @default(true)
+  creadoEn  DateTime @default(now()) @map("creado_en")
+
+  personasFisicas PersonaFisicaAutorizada[]
+  operaciones     Operacion[]
+
+  @@unique([tenantId, numero])
+  @@index([tenantId, activa])
+  @@map("patente")
+}
+
+/// Persona física autorizada (mandatario / agente) ligada a una patente.
+model PersonaFisicaAutorizada {
+  id         String   @id @default(cuid())
+  tenantId   String   @map("tenant_id")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  patenteId  String   @map("patente_id")
+  patente    Patente  @relation(fields: [patenteId], references: [id], onDelete: Cascade)
+
+  nombre     String
+  rfc        String?
+  curp       String?
+  /// Identificador de la e.firma (FIEL) usada para atribuir actos.
+  efirmaSerie String? @map("efirma_serie")
+  activa     Boolean  @default(true)
+  creadoEn   DateTime @default(now()) @map("creado_en")
+
+  @@index([tenantId, patenteId])
+  @@map("persona_fisica_autorizada")
+}
+
+/// Encargo conferido (B14/B21) con vigencia/estado, verificado por operación.
+model EncargoConferido {
+  id              String        @id @default(cuid())
+  tenantId        String        @map("tenant_id")
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  clienteId       String        @map("cliente_id")
+  cliente         Cliente       @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// "B14" | "B21" u otro tipo de aviso de encargo.
+  tipo            String
+  estado          EstadoEncargo @default(VIGENTE)
+  /// Firma electrónica del cliente que confiere el encargo.
+  efirmaCliente   String?       @map("efirma_cliente")
+  /// Aceptación del agente.
+  aceptacionAgente Boolean      @default(false) @map("aceptacion_agente")
+  vigenciaInicio  DateTime      @map("vigencia_inicio")
+  vigenciaFin     DateTime?     @map("vigencia_fin")
+  creadoEn        DateTime      @default(now()) @map("creado_en")
+
+  operaciones     Operacion[]
+
+  @@index([tenantId, clienteId, estado])
+  @@map("encargo_conferido")
+}
+
+// ============================================================================
+// Tres expedientes separados (custodio y plazo de retención propios)
+// ============================================================================
+
+/// Expediente KYC art. 1414 (retención ~3 años). 1:1 con Cliente.
+model ExpedienteKyc1414 {
+  id         String   @id @default(cuid())
+  tenantId   String   @map("tenant_id")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  clienteId  String   @unique @map("cliente_id")
+  cliente    Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// Custodio responsable del expediente.
+  custodio   String?
+  /// Fecha límite de retención (plazo propio).
+  retieneHasta DateTime? @map("retiene_hasta")
+  creadoEn   DateTime @default(now()) @map("creado_en")
+
+  documentos Documento[]
+
+  @@index([tenantId])
+  @@map("expediente_kyc_1414")
+}
+
+/// Expediente probatorio del despacho (~5 años, art. 30 CFF). 1:1 con Cliente.
+model ExpedienteProbatorioDespacho {
+  id         String   @id @default(cuid())
+  tenantId   String   @map("tenant_id")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  clienteId  String   @unique @map("cliente_id")
+  cliente    Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  custodio   String?
+  retieneHasta DateTime? @map("retiene_hasta")
+  creadoEn   DateTime @default(now()) @map("creado_en")
+
+  documentos Documento[]
+
+  @@index([tenantId])
+  @@map("expediente_probatorio_despacho")
+}
+
+/// Expediente doble 3142 (agente + empresa). 1:1 con Cliente.
+model ExpedienteDoble3142 {
+  id         String   @id @default(cuid())
+  tenantId   String   @map("tenant_id")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  clienteId  String   @unique @map("cliente_id")
+  cliente    Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  custodio   String?
+  retieneHasta DateTime? @map("retiene_hasta")
+  creadoEn   DateTime @default(now()) @map("creado_en")
+
+  documentos Documento[]
+
+  @@index([tenantId])
+  @@map("expediente_doble_3142")
+}
+
+/// Documento custodiado en alguno de los tres expedientes. Las versiones
+/// históricas NO son purgables (prueba exculpatoria).
+model Documento {
+  id               String           @id @default(cuid())
+  tenantId         String           @map("tenant_id")
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Tipo documental (libre / catálogo).
+  tipo             String
+  /// SHA-256 (hex, 64 chars) del contenido del documento.
+  sha256           String           @db.Char(64)
+  /// URL del objeto en almacenamiento WORM.
+  wormUrl          String?          @map("worm_url")
+  estadoProbatorio EstadoProbatorio @default(EVIDENCIA_PRELIMINAR) @map("estado_probatorio")
+  /// Versión histórica (no purgable).
+  version          Int              @default(1)
+  /// Fecha de vencimiento del documento.
+  vence            DateTime?
+  creadoEn         DateTime         @default(now()) @map("creado_en")
+
+  /// Pertenece a UNO de los tres expedientes (FK opcional por expediente).
+  expedienteKycId        String?            @map("expediente_kyc_id")
+  expedienteKyc          ExpedienteKyc1414? @relation(fields: [expedienteKycId], references: [id])
+  expedienteProbatorioId String?            @map("expediente_probatorio_id")
+  expedienteProbatorio   ExpedienteProbatorioDespacho? @relation(fields: [expedienteProbatorioId], references: [id])
+  expedienteDobleId      String?            @map("expediente_doble_id")
+  expedienteDoble        ExpedienteDoble3142? @relation(fields: [expedienteDobleId], references: [id])
+
+  @@index([tenantId, tipo])
+  @@index([tenantId, estadoProbatorio])
+  @@index([tenantId, vence])
+  @@map("documento")
+}
+
+// ============================================================================
+// Operación + máquina de estados del despacho + partida reservada
+// ============================================================================
+
+/// Operación de despacho de importación. La máquina de estados se modela con
+/// el enum `EstadoDespacho` (la incidencia del rojo es un estado).
+model Operacion {
+  id             String         @id @default(cuid())
+  tenantId       String         @map("tenant_id")
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  clienteId      String         @map("cliente_id")
+  cliente        Cliente        @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// Atribución por patente (acto crítico).
+  patenteId      String?        @map("patente_id")
+  patente        Patente?       @relation(fields: [patenteId], references: [id])
+
+  /// Encargo conferido verificado para esta operación.
+  encargoId      String?        @map("encargo_id")
+  encargo        EncargoConferido? @relation(fields: [encargoId], references: [id])
+
+  /// Referencia interna del despacho.
+  referencia     String
+  estado         EstadoDespacho @default(ARMADO)
+  creadoEn       DateTime       @default(now()) @map("creado_en")
+  actualizadoEn  DateTime       @updatedAt @map("actualizado_en")
+
+  partidas       Partida[]
+
+  @@unique([tenantId, referencia])
+  @@index([tenantId, estado])
+  @@index([tenantId, clienteId])
+  @@map("operacion")
+}
+
+/// Partida / mercancía. RESERVADA desde Fase 0 para evitar reescritura.
+model Partida {
+  id               String   @id @default(cuid())
+  tenantId         String   @map("tenant_id")
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  operacionId      String   @map("operacion_id")
+  operacion        Operacion @relation(fields: [operacionId], references: [id], onDelete: Cascade)
+
+  descripcion      String?
+  /// Fracción arancelaria declarada (reservada).
+  fraccionDeclarada String? @map("fraccion_declarada")
+  /// Número de identificación comercial (reservado).
+  nico             String?
+  umt              String?
+  origen           String?
+  incoterm         String?
+  /// Valor declarado (reservado).
+  valorDeclarado   Decimal? @map("valor_declarado") @db.Decimal(18, 4)
+  creadoEn         DateTime @default(now()) @map("creado_en")
+
+  @@index([tenantId, operacionId])
+  @@map("partida")
+}
+
+// ============================================================================
+// Alerta 69-B (alerta, no bloqueo)
+// ============================================================================
+
+/// Alerta del art. 69-B CFF por etapa. Es ALERTA, no bloqueo; el override se
+/// firma (e.firma) y es inmutable.
+model Alerta69b {
+  id            String    @id @default(cuid())
+  tenantId      String    @map("tenant_id")
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  clienteId     String    @map("cliente_id")
+  cliente       Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  estado        Estado69b @default(PRESUNTO)
+  /// SHA-256 del snapshot del DOF que motivó la etapa.
+  snapshotDofSha256 String? @map("snapshot_dof_sha256") @db.Char(64)
+  snapshotDofFecha  DateTime? @map("snapshot_dof_fecha")
+
+  /// Override firmado (e.firma del actor) — inmutable cuando estado = OVERRIDE.
+  overrideEfirma String?  @map("override_efirma")
+  overrideMotivo String?  @map("override_motivo")
+  overrideEn     DateTime? @map("override_en")
+
+  creadoEn       DateTime @default(now()) @map("creado_en")
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en")
+
+  @@index([tenantId, clienteId, estado])
+  @@map("alerta_69b")
+}
+
+// ============================================================================
+// Privacidad (alineado a schema-consentimiento.prisma del módulo de privacidad)
+// ============================================================================
+
+/// Versión publicada del Aviso de Privacidad (integral o corto). Inmutable.
+/// El hash es el SHA-256 del texto exacto publicado.
+model VersionAviso {
+  id            String    @id @default(cuid())
+  tenantId      String    @map("tenant_id")
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  tipo          TipoAviso
+  /// Etiqueta legible, p. ej. "v2".
+  version       String
+  /// SHA-256 (hex, 64 chars) del cuerpo exacto del aviso publicado.
+  hashAviso     String    @map("hash_aviso") @db.Char(64)
+  /// Texto íntegro publicado (fuente del hash). Conservar para exporte probatorio.
+  cuerpo        String
+  vigenteDesde  DateTime  @default(now()) @map("vigente_desde")
+  vigenteHasta  DateTime? @map("vigente_hasta")
+  publicadoPor  String?   @map("publicado_por")
+
+  consentimientos ConsentimientoDatos[]
+
+  @@unique([tenantId, tipo, version])
+  @@index([tenantId, tipo, vigenteHasta])
+  @@map("version_aviso")
+}
+
+/// Registro de consentimiento expreso del titular para datos sensibles
+/// (LFPDPPP art. 9). Una fila por acto; la revocación NO borra la fila.
+model ConsentimientoDatos {
+  id                   String   @id @default(cuid())
+  tenantId             String   @map("tenant_id")
+  tenant               Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Sujeto titular dentro del tenant (FK lógica al titular/operación).
+  titularRef           String   @map("titular_ref")
+  /// Operación / captura a la que pertenece el consentimiento (opcional).
+  operacionRef         String?  @map("operacion_ref")
+
+  /// Versión del aviso aceptada (aviso corto de captura, normalmente).
+  versionAvisoId       String   @map("version_aviso_id")
+  versionAviso         VersionAviso @relation(fields: [versionAvisoId], references: [id])
+  /// Etiqueta de versión denormalizada para lectura rápida e independencia del FK.
+  versionAvisoEtiqueta String   @map("version_aviso_etiqueta")
+  /// SHA-256 del aviso que el titular tenía en pantalla al aceptar.
+  hashAvisoPrivacidad  String   @map("hash_aviso_privacidad") @db.Char(64)
+
+  /// Alcance otorgado.
+  consienteBiometricos Boolean  @default(false) @map("consiente_biometricos")
+  consienteGeoloc      Boolean  @default(false) @map("consiente_geoloc")
+  /// true si el titular eligió "Continuar sin capturar evidencia sensible".
+  rutaSinEvidencia     Boolean  @default(false) @map("ruta_sin_evidencia")
+
+  /// Medio y metadatos del acto.
+  medio                String   @default("WEB_PUNTO_CAPTURA")
+  ipOrigen             String?  @map("ip_origen")
+  userAgent            String?  @map("user_agent")
+
+  /// Sello de integridad del registro.
+  /// selloRegistro = SHA-256( payload canónico de este consentimiento ).
+  selloRegistro        String   @map("sello_registro") @db.Char(64)
+  /// Encadenamiento append-only con el sello del registro previo del tenant.
+  hashPrev             String?  @map("hash_prev") @db.Char(64)
+
+  /// Revocación (LFPDPPP art. 16 §6 aviso): sin efectos retroactivos.
+  revocado             Boolean  @default(false)
+  revocadoEn           DateTime? @map("revocado_en")
+  motivoRevocacion     String?  @map("motivo_revocacion")
+
+  creadoEn             DateTime @default(now()) @map("creado_en")
+
+  @@index([tenantId, titularRef, creadoEn])
+  @@index([tenantId, revocado])
+  @@map("consentimiento_datos")
+}
+
+// ============================================================================
+// Bitácora de auditoría (append-only, encadenada)
+// ============================================================================
+
+/// Bitácora append-only. Cada fila encadena con el sha256 de la fila previa del
+/// tenant (`hashPrev`). No se actualiza ni borra (control probatorio).
+model BitacoraAuditoria {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Actor que ejecutó la acción (usuario / e.firma).
+  actor       String
+  /// Acción registrada.
+  accion      String
+  /// Referencia al payload sellado (URL/ID externo), no el payload completo.
+  payloadRef  String?  @map("payload_ref")
+  /// SHA-256 (hex, 64 chars) del registro canónico.
+  sha256      String   @db.Char(64)
+  /// SHA-256 del registro previo del tenant (encadenamiento).
+  hashPrev    String?  @map("hash_prev") @db.Char(64)
+  /// Estado del sello calificado del registro.
+  estadoSello EstadoProbatorio @default(EVIDENCIA_PRELIMINAR) @map("estado_sello")
+
+  creadoEn    DateTime @default(now()) @map("creado_en")
+
+  @@index([tenantId, creadoEn])
+  @@index([tenantId, accion])
+  @@map("bitacora_auditoria")
+}

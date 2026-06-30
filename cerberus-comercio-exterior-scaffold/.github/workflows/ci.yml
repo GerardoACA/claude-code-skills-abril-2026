@@ -1,0 +1,37 @@
+# CERBERUS COMERCIO EXTERIOR — CI (lint + vitest). NO es SIDF.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    name: Lint y pruebas
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Generar cliente Prisma
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+      # Suite completa. tests/tenant-leak.test.ts forma parte de esta corrida
+      # y es un GATE BLOQUEANTE: si filtra datos entre inquilinos, el CI falla
+      # y el merge queda bloqueado.
+      - name: Pruebas (Vitest, incl. tenant-leak)
+        run: npm test
