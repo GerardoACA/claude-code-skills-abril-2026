@@ -1,0 +1,89 @@
+// ============================================================================
+// PRODUCTO: CERBERUS COMERCIO EXTERIOR (SaaS nuevo)  —  NO es SIDF.
+// Fragmento de schema Prisma para el módulo de Privacidad / LFPDPPP.
+// Materializa el aviso v2 + aviso corto (consentimiento de datos sensibles:
+// firma grafométrica y geolocalización) con sello de integridad SHA-256.
+//
+// Roles LFPDPPP: Responsable = tenant ; Encargado = CERBERUS Comercio Exterior.
+// Multi-tenant: toda fila lleva tenantId y se protege con RLS (tenant_id vs token).
+// Pega estos modelos en prisma/schema.prisma del producto nuevo.
+// ============================================================================
+
+/// Versión publicada del Aviso de Privacidad (integral o corto). Inmutable.
+/// El hash es el SHA-256 del texto exacto publicado: permite probar QUÉ
+/// versión vio el titular al consentir.
+model VersionAviso {
+  id            String   @id @default(cuid())
+  tenantId      String   @map("tenant_id")
+  /// "INTEGRAL" | "CORTO_CAPTURA"
+  tipo          TipoAviso
+  /// Etiqueta legible, p. ej. "v2"
+  version       String
+  /// SHA-256 (hex, 64 chars) del cuerpo exacto del aviso publicado.
+  hashAviso     String   @map("hash_aviso") @db.Char(64)
+  /// Texto íntegro publicado (fuente del hash). Conservar para exporte probatorio.
+  cuerpo        String
+  vigenteDesde  DateTime @default(now()) @map("vigente_desde")
+  vigenteHasta  DateTime? @map("vigente_hasta")
+  publicadoPor  String?  @map("publicado_por")
+
+  consentimientos ConsentimientoDatos[]
+
+  @@unique([tenantId, tipo, version])
+  @@index([tenantId, tipo, vigenteHasta])
+  @@map("version_aviso")
+}
+
+/// Registro de consentimiento expreso del titular para datos sensibles
+/// (LFPDPPP art. 9). Una fila por acto de consentimiento; la revocación
+/// NO borra la fila (sin efectos retroactivos): marca `revocado`.
+model ConsentimientoDatos {
+  id                   String   @id @default(cuid())
+  tenantId             String   @map("tenant_id")
+
+  /// Sujeto titular dentro del tenant (FK lógica al titular/operación).
+  titularRef           String   @map("titular_ref")
+  /// Operación / captura a la que pertenece el consentimiento (opcional).
+  operacionRef         String?  @map("operacion_ref")
+
+  /// Versión del aviso aceptada (aviso corto de captura, normalmente).
+  versionAvisoId       String   @map("version_aviso_id")
+  versionAviso         VersionAviso @relation(fields: [versionAvisoId], references: [id])
+  /// Etiqueta de versión denormalizada para lectura rápida e independencia del FK.
+  versionAvisoEtiqueta String   @map("version_aviso_etiqueta")
+  /// SHA-256 del aviso que el titular tenía en pantalla al aceptar.
+  hashAvisoPrivacidad  String   @map("hash_aviso_privacidad") @db.Char(64)
+
+  /// Alcance otorgado.
+  consientebiometricos Boolean  @default(false) @map("consiente_biometricos")
+  consienteGeoloc      Boolean  @default(false) @map("consiente_geoloc")
+  /// true si el titular eligió "Continuar sin capturar evidencia sensible".
+  rutaSinEvidencia     Boolean  @default(false) @map("ruta_sin_evidencia")
+
+  /// Medio y metadatos del acto.
+  medio                String   @default("WEB_PUNTO_CAPTURA")
+  ipOrigen             String?  @map("ip_origen")
+  userAgent            String?  @map("user_agent")
+
+  /// Sello de integridad del registro.
+  /// selloRegistro = SHA-256( payload canónico de este consentimiento ).
+  selloRegistro        String   @map("sello_registro") @db.Char(64)
+  /// Encadenamiento append-only con el sello del registro previo del tenant.
+  hashPrev             String?  @map("hash_prev") @db.Char(64)
+
+  /// Revocación (LFPDPPP art. 16 §6 aviso): sin efectos retroactivos.
+  revocado             Boolean  @default(false)
+  revocadoEn           DateTime? @map("revocado_en")
+  motivoRevocacion     String?  @map("motivo_revocacion")
+
+  creadoEn             DateTime @default(now()) @map("creado_en")
+
+  @@index([tenantId, titularRef, creadoEn])
+  @@index([tenantId, revocado])
+  @@map("consentimiento_datos")
+}
+
+enum TipoAviso {
+  INTEGRAL
+  CORTO_CAPTURA
+}
