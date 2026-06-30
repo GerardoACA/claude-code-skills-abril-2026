@@ -55,7 +55,7 @@ model ConsentimientoDatos {
   hashAvisoPrivacidad  String   @map("hash_aviso_privacidad") @db.Char(64)
 
   /// Alcance otorgado.
-  consientebiometricos Boolean  @default(false) @map("consiente_biometricos")
+  consienteBiometricos Boolean  @default(false) @map("consiente_biometricos")
   consienteGeoloc      Boolean  @default(false) @map("consiente_geoloc")
   /// true si el titular eligió "Continuar sin capturar evidencia sensible".
   rutaSinEvidencia     Boolean  @default(false) @map("ruta_sin_evidencia")

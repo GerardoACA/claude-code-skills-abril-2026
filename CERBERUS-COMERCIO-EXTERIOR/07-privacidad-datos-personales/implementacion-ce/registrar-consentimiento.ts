@@ -124,7 +124,7 @@ export async function POST(req: Request) {
       versionAvisoId: aviso.id,
       versionAvisoEtiqueta: aviso.version,
       hashAvisoPrivacidad: aviso.hashAviso,
-      consientebiometricos: body.consienteBiometricos,
+      consienteBiometricos: body.consienteBiometricos,
       consienteGeoloc: body.consienteGeoloc,
       rutaSinEvidencia: body.rutaSinEvidencia,
       medio: "WEB_PUNTO_CAPTURA",
