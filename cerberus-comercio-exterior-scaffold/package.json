@@ -1,0 +1,41 @@
+{
+  "name": "cerberus-comercio-exterior",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CERBERUS COMERCIO EXTERIOR — plataforma multi-tenant de cumplimiento y trazabilidad probatoria para agencias aduanales. NO es SIDF.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest run",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:rls": "for f in prisma/sql/*.sql; do psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f \"$f\"; done"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^7",
+    "next": "^16",
+    "next-auth": "^4",
+    "react": "^19",
+    "react-dom": "^19",
+    "zod": "^3"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "^16",
+    "prisma": "^7",
+    "tsx": "^4",
+    "typescript": "^5",
+    "vitest": "^3"
+  }
+}
