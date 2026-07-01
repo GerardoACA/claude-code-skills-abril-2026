@@ -165,6 +165,7 @@ export default async function OperacionDetallePage({
               Última actualización:{" "}
               {new Date(operacion.actualizadoEn).toLocaleString("es-MX")}
             </p>
+            <p style={{ marginTop: "0.75rem", marginBottom: 0 }}><a href={`/operaciones/${encodeURIComponent(operacion.id)}/tramites`} style={{ color: "#2563eb" }}>Trámites del despacho →</a></p>
           </section>
 
           <section style={{ marginTop: "1.5rem" }}>
