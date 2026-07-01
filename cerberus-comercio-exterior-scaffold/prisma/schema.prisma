@@ -670,3 +670,36 @@ model PasoDespacho {
   @@index([tenantId, operacionId, tipo])
   @@map("paso_despacho")
 }
+
+// ============================================================================
+// Listados reales del SAT (Incremento 10) — tablas de referencia GLOBALES.
+// Los listados (arts. 69, 69-B, 69-B Bis, 49 Bis CFF) son PÚBLICOS e iguales
+// para todos los tenants → SIN tenant_id (el script de RLS no las toca:
+// correcto por diseño; la escritura queda restringida al endpoint admin).
+// ============================================================================
+
+/// Importación (snapshot sellado) de un listado público del SAT.
+model ImportacionListadoSat {
+  id           String   @id @default(cuid())
+  fuente       FuenteVerificacion   // ART_69 | ART_69B | ART_69B_BIS | ART_49BIS
+  url          String
+  sha256Archivo String  @db.Char(64) @map("sha256_archivo")
+  filas        Int
+  importadoEn  DateTime @default(now()) @map("importado_en")
+  entradas     ListadoSatEntrada[]
+  @@index([fuente, importadoEn])
+  @@map("importacion_listado_sat")
+}
+
+/// Entrada (RFC) de un listado del SAT importado. Referencia global.
+model ListadoSatEntrada {
+  id            String   @id @default(cuid())
+  importacionId String   @map("importacion_id")
+  importacion   ImportacionListadoSat @relation(fields: [importacionId], references: [id], onDelete: Cascade)
+  fuente        FuenteVerificacion
+  rfc           String
+  razonSocial   String?  @map("razon_social")
+  situacion     String?  // texto de la columna "situación" del CSV (Presunto/Definitivo/etc.)
+  @@index([rfc, fuente])
+  @@map("listado_sat_entrada")
+}
