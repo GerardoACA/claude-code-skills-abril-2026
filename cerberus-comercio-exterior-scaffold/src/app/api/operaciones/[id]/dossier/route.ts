@@ -33,13 +33,10 @@ import {
   armarExporteProbatorio,
   serializarPaquete,
 } from "@/lib/probatoria/exporte-probatorio";
-import { sha256 } from "@/lib/probatoria/hash";
+import { selloContenidoDossier, TIPO_DOSSIER } from "@/lib/dossier-diligencia";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** Tipo documental del dossier (mismo literal que usa el Agente AUTO-DOSSIER). */
-const TIPO_DOSSIER = "DOSSIER_DILIGENCIA";
 
 /** Valores posibles del header X-Dossier-Match. */
 type DossierMatch = "true" | "false" | "sin-dossier";
@@ -91,7 +88,9 @@ export async function GET(
       const entrada = await construirEntradaExporte(tx, tenantId, operacion);
       const paquete = armarExporteProbatorio(entrada);
       const json = serializarPaquete(paquete);
-      const shaRegenerado = sha256(json);
+      // Cotejo por sello de CONTENIDO (fix Inc 9.1): excluye generadoEn y
+      // selloPaquete, para que Match: true sea alcanzable sin actividad posterior.
+      const shaRegenerado = selloContenidoDossier(paquete);
 
       // Último dossier SELLADO de la operación (Documento tipo DOSSIER_DILIGENCIA
       // con FK directa operacionId, Inc 8). Puede no existir todavía.

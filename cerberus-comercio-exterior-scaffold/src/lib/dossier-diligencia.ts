@@ -37,8 +37,9 @@ import {
 } from "@/lib/exporte-operacion";
 import {
   armarExporteProbatorio,
-  serializarPaquete,
+  type PaqueteProbatorio,
 } from "@/lib/probatoria/exporte-probatorio";
+import { canonicalizar } from "@/lib/probatoria/hash-chain";
 import { sha256 } from "@/lib/probatoria/hash";
 
 /** Tipo documental del dossier dentro del catálogo libre de `Documento.tipo`. */
@@ -64,6 +65,19 @@ function canonical(obj: Record<string, unknown>): string {
 }
 
 /**
+ * Sello de CONTENIDO del dossier (fix Inc 9.1, commit e163e8e del producto):
+ * SHA-256 del paquete canonicalizado EXCLUYENDO `generadoEn` (timestamp de
+ * pared que cambia en cada regeneración) y `selloPaquete` (que depende de
+ * generadoEn). Así el sello ancla la EVIDENCIA, no el instante de emisión, y
+ * el cotejo X-Dossier-Match: true es alcanzable cuando no hubo actividad
+ * posterior. Usar SIEMPRE esta función tanto al sellar como al cotejar.
+ */
+export function selloContenidoDossier(paquete: PaqueteProbatorio): string {
+  const { generadoEn: _g, selloPaquete: _s, ...contenido } = paquete;
+  return sha256(canonicalizar(contenido));
+}
+
+/**
  * Genera el dossier de diligencia de una operación DENTRO de la transacción
  * `tx` (tenant-scoped por RLS): arma el paquete probatorio con la evidencia
  * actual, lo sella con SHA-256, crea el `Documento` "DOSSIER_DILIGENCIA"
@@ -86,10 +100,11 @@ export async function generarDossier(
   //    transacción (incluye el evento del cambio de estado recién insertado).
   const entrada = await construirEntradaExporte(tx, tenantId, operacion);
   const paquete = armarExporteProbatorio(entrada);
-  const json = serializarPaquete(paquete);
 
-  // 2) Sello del dossier: SHA-256 del JSON canónico del paquete.
-  const selloDossier = sha256(json);
+  // 2) Sello del dossier: SHA-256 del CONTENIDO del paquete (excluye generadoEn
+  //    y selloPaquete — ver selloContenidoDossier). Ancla la evidencia del
+  //    instante de la diligencia y hace alcanzable el cotejo Match: true.
+  const selloDossier = selloContenidoDossier(paquete);
 
   // 3) Documento "DOSSIER_DILIGENCIA" ligado por FK directa a la operación.
   //    Los campos opcionales (wormUrl, vence, expedienteKycId,
