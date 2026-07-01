@@ -12,6 +12,7 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -22,19 +23,22 @@ export default function LoginPage() {
     setError(null);
     setEnviando(true);
 
+    // redirect:false para poder mostrar el error sin recargar; navegamos a
+    // callbackUrl manualmente cuando la autenticacion es exitosa.
     const resultado = await signIn("credentials", {
       email,
       password,
-      redirect: true,
+      redirect: false,
       callbackUrl: "/dashboard",
     });
 
-    // Con redirect:true NextAuth normalmente navega antes de resolver; si vuelve
-    // (p. ej. credenciales invalidas), `resultado.error` viene poblado.
-    if (resultado && resultado.error) {
+    if (!resultado || resultado.error) {
       setError("Correo o contrasena incorrectos.");
       setEnviando(false);
+      return;
     }
+
+    router.push(resultado.url ?? "/dashboard");
   }
 
   return (
