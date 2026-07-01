@@ -155,7 +155,7 @@ export function armarExporteProbatorio(
   const snapshotsExternos = entrada.snapshotsExternos ?? [];
   const resumen = resumir(entrada.registros);
 
-  const cuerpo = {
+  const cuerpo: Omit<PaqueteProbatorio, "selloPaquete"> = {
     formato: FORMATO_EXPORTE,
     generadoEn: new Date().toISOString(),
     tenantId: entrada.tenantId,
