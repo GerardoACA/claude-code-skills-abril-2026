@@ -13,7 +13,7 @@
 | **Art. 69 CFF** | Contribuyentes con créditos fiscales firmes/exigibles, no localizados, sentencias, etc. (listado público del SAT) |
 | **Art. 69-B CFF** | EFOS/EDOS — operaciones inexistentes (presunto / definitivo / desvirtuado / sentencia favorable) |
 | **Art. 69-B Bis CFF** | Transmisión indebida de pérdidas fiscales |
-| **Art. 29 Bis / conexos** | Supuestos que inhabilitan operaciones *(referencia a confirmar contra el texto vigente del CFF; ver nota de verificación abajo)* |
+| **Art. 49 Bis CFF** | Supuestos que inhabilitan operaciones *(corrección del cliente 1-jul-2026: es 49 Bis, no 29 Bis; citado también en la guía KYC original y modelado como ART_49BIS en cerberus-platform; verificar contra el texto vigente del CFF reformado 2026)* |
 | **Art. 32-D CFF — Opinión de cumplimiento** | Estado de la **opinión de cumplimiento de obligaciones fiscales** (positiva / negativa / no disponible) |
 | **Restricción/cancelación de CSD (17-H / 17-H Bis)** | Sello digital restringido o cancelado (impide facturar/operar) |
 | **Padrones (importadores / sectores)** | Suspensión o baja del padrón |
@@ -26,7 +26,7 @@
 ## Implicación para el modelo de datos (a implementar)
 El modelo actual `Alerta69b` (enum de 6 estados) es insuficiente para este alcance. Se propone
 una entidad más general **`VerificacionCumplimiento`** por cliente/proveedor con:
-- `fuente` (enum: ART_69, ART_69B, ART_69B_BIS, ART_29BIS, OPINION_32D, CSD_17H, PADRON, SANCIONES)
+- `fuente` (enum: ART_69, ART_69B, ART_69B_BIS, ART_49BIS, OPINION_32D, CSD_17H, PADRON, SANCIONES)
 - `resultado` / `estado` (p. ej. AL_CORRIENTE | ALERTA | INHABILITADO_PRESUNTO | INHABILITADO_DEFINITIVO | NO_DISPONIBLE)
 - `snapshotSha256`, `consultadoEn`, `vigenciaHasta`
 - relación con `Cliente` (y aplicable también a proveedores)
