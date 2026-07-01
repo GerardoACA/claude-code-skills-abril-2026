@@ -88,6 +88,19 @@ export default async function DashboardPage() {
           >
             Clientes
           </a>
+          <a
+            href="/operaciones"
+            style={{
+              background: "#2563eb",
+              color: "#fff",
+              padding: "0.5rem 0.9rem",
+              borderRadius: 6,
+              textDecoration: "none",
+              fontSize: "0.95rem",
+            }}
+          >
+            Operaciones
+          </a>
           <CerrarSesion />
         </div>
       </header>
