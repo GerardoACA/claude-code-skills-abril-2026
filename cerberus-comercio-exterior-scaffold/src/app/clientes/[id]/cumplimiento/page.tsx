@@ -20,7 +20,9 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
+import { prisma } from "@/lib/prisma";
 import { BotonVerificarCumplimiento } from "@/components/BotonVerificarCumplimiento";
+import { SincronizarListados } from "@/components/SincronizarListados";
 
 // Depende de sesion/DB: no debe pre-renderizarse en build.
 export const dynamic = "force-dynamic";
@@ -64,6 +66,24 @@ const FUENTES: { fuente: FuenteVerificacion; etiqueta: string }[] = [
   { fuente: "OPINION_32D", etiqueta: "Opinion 32-D (cumplimiento de obligaciones)" },
   { fuente: "CSD_17H", etiqueta: "CSD 17-H (sello digital)" },
 ];
+
+// Fuentes que se sincronizan como LISTADO del SAT (Incremento 10). Las tablas
+// ImportacionListadoSat/ListadoSatEntrada son GLOBALES (sin tenant_id: los
+// listados del SAT son publicos e iguales para todos los tenants), por eso su
+// lectura va con `prisma` directo y NO dentro de withTenantFromSession.
+const FUENTES_LISTADO: { fuente: FuenteVerificacion; etiqueta: string }[] = [
+  { fuente: "ART_69", etiqueta: "Art. 69" },
+  { fuente: "ART_69B", etiqueta: "Art. 69-B" },
+  { fuente: "ART_69B_BIS", etiqueta: "Art. 69-B Bis" },
+  { fuente: "ART_49BIS", etiqueta: "Art. 49 Bis" },
+];
+
+// Ultima importacion por fuente (solo campos mostrados).
+type UltimaImportacionFila = {
+  importadoEn: Date;
+  filas: number;
+  sha256Archivo: string;
+} | null;
 
 // Semaforo por resultado. Verde = al corriente; ambar = alerta/no disponible;
 // rojo = inhabilitado (presunto o definitivo). Es informativo (C9), no bloquea.
@@ -147,6 +167,22 @@ export default async function CumplimientoPage({ params }: PageProps) {
   }
 
   const cliente = datos.cliente;
+
+  // 3) Ultima sincronizacion de listados del SAT (Incremento 10). Referencia
+  //    GLOBAL sin tenant_id: consulta prisma DIRECTA (fuera de RLS por diseno),
+  //    la importacion mas reciente por cada fuente de listado.
+  const ultimasImportaciones: UltimaImportacionFila[] = await Promise.all(
+    FUENTES_LISTADO.map(({ fuente }) =>
+      prisma.importacionListadoSat.findFirst({
+        where: { fuente },
+        orderBy: { importadoEn: "desc" },
+        select: { importadoEn: true, filas: true, sha256Archivo: true },
+      }),
+    ),
+  );
+  const hayAlgunaSincronizacion = ultimasImportaciones.some((imp) => imp !== null);
+  // El rol proviene del JWT verificado (claims tipados en src/lib/auth.ts).
+  const esAdmin = session.user.rol === "ADMIN";
 
   // Resultado MAS RECIENTE por fuente (las verificaciones vienen ordenadas desc
   // por consultadoEn, asi que la primera de cada fuente es la vigente).
@@ -260,11 +296,49 @@ export default async function CumplimientoPage({ params }: PageProps) {
       <section style={{ marginTop: "2rem" }}>
         <h2 style={{ fontSize: "1.2rem" }}>Verificar</h2>
         <p style={{ color: "#475569", fontSize: "0.9rem", marginTop: 0 }}>
-          Ejecuta la verificacion de cumplimiento de las 6 fuentes (STUB
-          demostrativo, sin API externa todavia). Registra un snapshot fechado
-          sellado con SHA-256 por cada fuente.
+          Ejecuta la verificacion de cumplimiento de las 6 fuentes. Los arts.
+          69, 69-B, 69-B Bis y 49 Bis se consultan contra los listados REALES
+          del SAT importados (opinion 32-D y CSD 17-H siguen pendientes de
+          integracion). Registra un snapshot fechado sellado con SHA-256 por
+          cada fuente.
         </p>
         <BotonVerificarCumplimiento clienteId={cliente.id} />
+      </section>
+
+      <section style={{ marginTop: "2rem" }}>
+        <h2 style={{ fontSize: "1.2rem" }}>Ultima sincronizacion de listados</h2>
+        {hayAlgunaSincronizacion ? (
+          <ul style={{ paddingLeft: "1.25rem", marginTop: "0.5rem" }}>
+            {FUENTES_LISTADO.map(({ fuente, etiqueta }, i) => {
+              const imp = ultimasImportaciones[i] ?? null;
+              return (
+                <li
+                  key={fuente}
+                  style={{ fontSize: "0.85rem", color: "#475569", marginBottom: "0.25rem" }}
+                >
+                  <strong>{etiqueta}</strong>:{" "}
+                  {imp ? (
+                    <>
+                      {imp.importadoEn.toISOString()} · {imp.filas} filas ·{" "}
+                      <code style={{ fontFamily: "monospace", fontSize: "0.75rem" }}>
+                        sha256 {imp.sha256Archivo.slice(0, 16)}…
+                      </code>
+                    </>
+                  ) : (
+                    "sin sincronizar"
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p style={{ color: "#92400e", fontSize: "0.9rem", marginTop: "0.5rem" }}>
+            Los listados del SAT <strong>nunca se han sincronizado</strong>: la
+            verificacion de los arts. 69 / 69-B / 69-B Bis / 49 Bis saldra
+            NO_DISPONIBLE hasta que un administrador los sincronice.
+          </p>
+        )}
+        <SincronizarListados esAdmin={esAdmin} />
       </section>
 
       {datos.verificaciones.length > 0 ? (

@@ -3,9 +3,10 @@
 // Archivo:  src/app/api/clientes/[id]/cumplimiento/route.ts
 // Proposito: POST que corre la verificacion de cumplimiento COMPLETA de un cliente
 //            (las 6 fuentes: art. 69, 69-B, 69-B Bis, 49 Bis, opinion 32-D y CSD
-//            17-H) usando el servicio STUB `verificarCumplimiento` de
-//            @/lib/verificacion-cumplimiento, y crea UN registro
-//            VerificacionCumplimiento por cada FuenteVerificacion evaluada.
+//            17-H) usando el servicio ASINCRONO `verificarCumplimiento` de
+//            @/lib/verificacion-cumplimiento (Incremento 10: consulta los
+//            listados REALES del SAT importados en tablas globales), y crea UN
+//            registro VerificacionCumplimiento por cada FuenteVerificacion.
 //
 // DECISION C9 — ES ALERTA, *NO* BLOQUEO:
 //   El software NUNCA bloquea la operacion. Solo MARCA y REGISTRA el estado de
@@ -110,10 +111,13 @@ export async function POST(_req: Request, { params }: Params) {
         return { tipo: "no-cliente" };
       }
 
-      // 2) STUB: correr el servicio de verificacion de cumplimiento para el RFC.
-      //    Devuelve (sincrono) un resultado por cada FuenteVerificacion, con
-      //    snapshot fechado. Solo requiere el RFC (contrato del servicio).
-      const evaluaciones: ResultadoFuente[] = verificarCumplimiento({
+      // 2) Correr el servicio de verificacion de cumplimiento para el RFC
+      //    (Incremento 10: ASINCRONO; consulta los listados REALES del SAT).
+      //    Se le pasa el `tx`: los modelos globales ImportacionListadoSat /
+      //    ListadoSatEntrada NO tienen tenant_id y son accesibles desde la
+      //    transaccion aunque la RLS no los cubra (referencia global publica).
+      //    La escritura de VerificacionCumplimiento (abajo) sigue tenant-scoped.
+      const evaluaciones: ResultadoFuente[] = await verificarCumplimiento(tx, {
         rfc: cliente.rfc,
       });
 
