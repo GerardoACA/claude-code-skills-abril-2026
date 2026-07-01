@@ -129,6 +129,7 @@ model Tenant {
   versionesAviso            VersionAviso[]
   consentimientos           ConsentimientoDatos[]
   bitacora                  BitacoraAuditoria[]
+  verificaciones            VerificacionCumplimiento[]
 
   @@map("tenant")
 }
@@ -201,6 +202,7 @@ model Cliente {
   encargosConferidos   EncargoConferido[]
   operaciones          Operacion[]
   alertas69b           Alerta69b[]
+  verificaciones       VerificacionCumplimiento[]
 
   @@unique([tenantId, rfc])
   @@index([tenantId, estadoCsd])
@@ -572,4 +574,48 @@ model BitacoraAuditoria {
   @@index([tenantId, creadoEn])
   @@index([tenantId, accion])
   @@map("bitacora_auditoria")
+}
+
+// ============================================================================
+// Verificación de cumplimiento (Incremento 5) — alcance ampliado del KYC
+// más allá del 69-B (art. 69, 69-B, 69-B Bis, 29 Bis, opinión 32-D, CSD 17-H).
+// Principio C9: ALERTA y registra, NUNCA bloquea. Alerta69b se conserva.
+// ============================================================================
+
+/// Fuente/supuesto verificado del cumplimiento fiscal del cliente/proveedor.
+enum FuenteVerificacion {
+  ART_69          // créditos firmes / no localizados (listado SAT)
+  ART_69B         // EFOS/EDOS (operaciones inexistentes)
+  ART_69B_BIS     // transmisión indebida de pérdidas
+  ART_29BIS       // supuesto que inhabilita operaciones (referencia a confirmar por abogado)
+  OPINION_32D     // opinión de cumplimiento de obligaciones fiscales
+  CSD_17H         // restricción/cancelación de sello digital
+}
+
+/// Resultado de la verificación por fuente.
+enum ResultadoVerificacion {
+  AL_CORRIENTE
+  NO_DISPONIBLE
+  ALERTA
+  INHABILITADO_PRESUNTO
+  INHABILITADO_DEFINITIVO
+}
+
+/// Verificación de cumplimiento por cliente y fuente, con snapshot fechado.
+model VerificacionCumplimiento {
+  id             String                @id @default(cuid())
+  tenantId       String                @map("tenant_id")
+  tenant         Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clienteId      String                @map("cliente_id")
+  cliente        Cliente               @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  fuente         FuenteVerificacion
+  resultado      ResultadoVerificacion
+  detalle        String?
+  snapshotSha256 String?               @db.Char(64) @map("snapshot_sha256")
+  consultadoEn   DateTime              @default(now()) @map("consultado_en")
+  vigenciaHasta  DateTime?             @map("vigencia_hasta")
+  creadoEn       DateTime              @default(now()) @map("creado_en")
+
+  @@index([tenantId, clienteId, fuente])
+  @@map("verificacion_cumplimiento")
 }
