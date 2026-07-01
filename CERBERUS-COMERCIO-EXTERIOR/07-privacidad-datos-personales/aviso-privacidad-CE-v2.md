@@ -71,9 +71,13 @@ integridad) y mediante el aviso corto en el punto de captura.
 6. **Poner la información a disposición de las autoridades competentes (SAT, ANAM, VUCEM y
    demás) cuando la requieran en ejercicio de sus facultades de comprobación, fiscalización o
    despacho aduanero.** Esta puesta a disposición se realiza **en cumplimiento de una obligación
-   legal del Responsable y por requerimiento de autoridad competente** (LFPDPPP arts. 10 y 37;
-   Reglamento art. 10; arts. 42 y 69 CFF y Ley Aduanera), por lo que **no requiere el
-   consentimiento del titular**. *(Numeración de fracciones a confirmar contra texto vigente.)*
+   legal del Responsable y en atención a orden, resolución o mandato fundado y motivado de
+   autoridad competente**, en los supuestos de los **artículos 9 y 36 de la Ley Federal de
+   Protección de Datos Personales en Posesión de los Particulares (DOF 20 de marzo de 2025)**
+   —excepción al consentimiento y transferencia prevista en ley—, en relación con los
+   **artículos 42, 49 Bis, 69, 69-B y 69-B Bis del CFF, la Ley Aduanera y la regla 1.4.14 de
+   las RGCE**, por lo que **no requiere el consentimiento del titular**. *(Fracciones exactas
+   —art. 9 fr. VII y art. 36 fr. I— en cotejo final contra el DOF por abogado colegiado.)*
 
 ### 3.2 Finalidades secundarias (puede oponerse en cualquier momento, sin afectar la relación)
 7. Envío de comunicaciones informativas sobre cambios normativos relevantes.
@@ -87,7 +91,7 @@ momento**, a través de **[mecanismo / correo de oposición]**. Si lo hace dentr
 
 | Destinatario | Finalidad | ¿Requiere consentimiento? |
 |---|---|---|
-| Autoridades (SAT, ANAM, VUCEM, autoridad jurisdiccional) | Cumplimiento de obligación legal y facultades de comprobación/despacho | **No** (obligación legal + requerimiento de autoridad; arts. 10 y 37 LFPDPPP) |
+| Autoridades (SAT, ANAM, VUCEM, autoridad jurisdiccional) | Cumplimiento de obligación legal y facultades de comprobación/despacho | **No** (obligación legal + mandato de autoridad; arts. 9 y 36 LFPDPPP 2025) |
 | Prestador de Servicios de Certificación (PSC, p. ej. Cincel) | Sellado de tiempo / conservación NOM-151 | No (remisión a encargado/subencargado) |
 | Proveedor de Autorización Certificado (PAC) | Timbrado de CFDI y complementos | No (remisión necesaria para la finalidad) |
 | Agente aduanal designado | Despacho de la operación encomendada | No (necesaria para la prestación solicitada) |
@@ -136,8 +140,10 @@ rol con aislamiento entre clientes, registro de auditoría inalterable, conserva
 
 ## 10. Autoridad garante
 Si considera que su derecho a la protección de datos personales ha sido vulnerado, puede acudir
-ante la **autoridad garante competente en materia de protección de datos personales**.
-*(Denominación del órgano vigente a confirmar tras la reforma de 2025.)*
+ante la **Secretaría Anticorrupción y Buen Gobierno**, autoridad competente en materia de
+protección de datos personales en posesión de los particulares conforme a la LFPDPPP publicada
+en el DOF el 20 de marzo de 2025 (que sustituyó en estas funciones al extinto INAI), o ante la
+instancia que la normativa aplicable determine al momento de su solicitud.
 
 ## 11. Cambios al aviso de privacidad
 Este aviso puede modificarse. Los cambios se comunicarán a través de **[medio: plataforma /
@@ -158,7 +164,10 @@ datos sensibles, se recabará nueva aceptación.
 ---
 
 ## Puntos a confirmar por abogado humano colegiado (antes de publicar)
-1. Numeración vigente de las fracciones del art. 37 LFPDPPP y de los artículos del Reglamento.
-2. Denominación actual del órgano garante sucesor del INAI.
+> Actualizado 1-jul-2026 con el [dictamen de cierre de pendientes](./dictamen-cierre-pendientes-legales.md):
+> el fundamento pasó del art. 37 a los **arts. 9 y 36 de la LFPDPPP 2025**, el garante es la
+> **Secretaría Anticorrupción y Buen Gobierno**, y el **art. 49 Bis CFF existe** (DOF 7-nov-2025).
+1. Cotejo literal contra el DOF de las fracciones exactas (art. 9 fr. VII y art. 36 fr. I LFPDPPP 2025; art. 49 Bis fr. X CFF; regla 1.4.14 reformada DOF 14-may-2026).
+2. Remapeo integral de los demás artículos de la LFPDPPP citados en este aviso a la numeración de la ley 2025 (ARCO, sensibles, aviso simplificado) y régimen transitorio del Reglamento.
 3. Plazo de conservación aduanero específico (Ley Aduanera / RGCE).
 4. Validación integral del texto y firma de conformidad.
