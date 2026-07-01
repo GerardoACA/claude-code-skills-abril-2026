@@ -4,6 +4,7 @@
 
 import { createHash } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
+import { hashPassword } from "../src/lib/password";
 
 const prisma = new PrismaClient();
 

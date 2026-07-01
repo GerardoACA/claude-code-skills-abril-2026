@@ -140,20 +140,10 @@ export const authOptions: NextAuthOptions = {
   },
 
   pages: {
-    // signIn: "/login", // habilitar cuando exista la pagina (Agente A/C).
+    // Pagina de login personalizada (src/app/login/page.tsx).
+    signIn: "/login",
   },
 };
-
-// -----------------------------------------------------------------------------
-// verificarPassword: stub conectable. DEBE reemplazarse por verificacion real de
-// hash (argon2/bcrypt). Por defecto rechaza (fail-closed) salvo que se conecte un
-// verificador, para no permitir login con cualquier clave por accidente.
-// -----------------------------------------------------------------------------
-async function verificarPassword(_usuarioId: string, _password: string): Promise<boolean> {
-  // Fail-closed: sin verificador real conectado, NO autenticar.
-  // El Agente que implemente el flujo de password debe sustituir este cuerpo.
-  return false;
-}
 
 // =============================================================================
 // FIN auth.ts  —  CERBERUS COMERCIO EXTERIOR

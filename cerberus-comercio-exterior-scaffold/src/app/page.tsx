@@ -10,6 +10,55 @@ export default function HomePage() {
         agencias aduanales y agentes de comercio exterior en México.
       </p>
 
+      <nav
+        style={{
+          marginTop: "2rem",
+          display: "flex",
+          gap: "0.75rem",
+          flexWrap: "wrap",
+        }}
+      >
+        <a
+          href="/login"
+          style={{
+            background: "#2563eb",
+            color: "#fff",
+            padding: "0.6rem 1.1rem",
+            borderRadius: 6,
+            textDecoration: "none",
+            fontWeight: 600,
+          }}
+        >
+          Iniciar sesión
+        </a>
+        <a
+          href="/dashboard"
+          style={{
+            border: "1px solid #2563eb",
+            color: "#2563eb",
+            padding: "0.6rem 1.1rem",
+            borderRadius: 6,
+            textDecoration: "none",
+            fontWeight: 600,
+          }}
+        >
+          Ir al tablero
+        </a>
+        <a
+          href="/aviso-privacidad"
+          style={{
+            border: "1px solid #cbd5e1",
+            color: "#475569",
+            padding: "0.6rem 1.1rem",
+            borderRadius: 6,
+            textDecoration: "none",
+            fontWeight: 600,
+          }}
+        >
+          Aviso de privacidad
+        </a>
+      </nav>
+
       <section style={{ marginTop: "2.5rem" }}>
         <h2 style={{ fontSize: "1.25rem" }}>¿Qué resuelve?</h2>
         <ul style={{ color: "#475569", lineHeight: 1.8 }}>
