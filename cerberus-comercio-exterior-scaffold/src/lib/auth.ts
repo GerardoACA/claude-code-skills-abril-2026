@@ -16,16 +16,19 @@
 //           credenciales se endurece despues (hash de password, lockout, etc.).
 // =============================================================================
 
-import type { NextAuthOptions } from "next-auth";
+import type { NextAuthOptions, User } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
+import { verifyPassword } from "@/lib/password";
 
 // -----------------------------------------------------------------------------
-// Roles de la aplicacion (claim `rol`). Mantener alineado con el modelo Usuario.
+// Roles de la aplicacion (claim `rol`). Alineado con el enum RolUsuario del
+// schema Prisma (prisma/schema.prisma): ADMIN, AGENTE, OPERADOR, AUDITOR,
+// AUTORIDAD.
 // -----------------------------------------------------------------------------
 export type RolUsuario =
   | "ADMIN"
-  | "AGENTE_ADUANAL"
+  | "AGENTE"
   | "OPERADOR"
   | "AUDITOR"
   | "AUTORIDAD";
@@ -74,35 +77,43 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Contrasena", type: "password" },
       },
       // authorize DEBE devolver un User con tenantId y rol, o null para rechazar.
-      // La verificacion de password se endurece en fases posteriores (hash, etc.).
-      async authorize(credentials) {
-        const email = credentials?.email?.trim().toLowerCase();
-        const password = credentials?.password;
+      // Verificacion real de password: hash scrypt en Usuario.passwordHash
+      // (ver src/lib/password.ts), comparacion timing-safe.
+      async authorize(credentials): Promise<User | null> {
+        const email: string = credentials?.email?.trim().toLowerCase() ?? "";
+        const password: string = credentials?.password ?? "";
         if (!email || !password) return null;
 
-        // El modelo Usuario lo define el Agente B (incluye tenantId y rol).
-        // Nota: este lookup NO pasa por RLS de tenant (login es pre-contexto);
-        // por eso se filtra explicitamente por email y se valida la credencial.
+        // El modelo Usuario (incluye tenantId, rol, passwordHash) es identificado
+        // por email (identificador unico). Este lookup NO pasa por RLS de tenant:
+        // el login es pre-contexto, por eso se filtra explicitamente por email.
         const usuario = await prisma.usuario.findFirst({
-          where: { email },
-          select: { id: true, tenantId: true, rol: true, email: true, nombre: true },
+          where: { email, activo: true },
+          select: {
+            id: true,
+            tenantId: true,
+            rol: true,
+            email: true,
+            nombre: true,
+            passwordHash: true,
+          },
         });
         if (!usuario) return null;
 
-        // TODO(seguridad): reemplazar por verificacion de hash de password
-        // (p. ej. argon2/bcrypt contra usuario.passwordHash). En Fase 0 el
-        // cableado de claims es el objetivo; aqui NO se acepta cualquier clave en
-        // produccion: exigir que exista un mecanismo de verificacion real.
-        const passwordOk = await verificarPassword(usuario.id, password);
+        // Fail-closed: sin hash almacenado no se puede autenticar localmente.
+        if (!usuario.passwordHash) return null;
+
+        const passwordOk: boolean = verifyPassword(password, usuario.passwordHash);
         if (!passwordOk) return null;
 
-        return {
+        const user: User = {
           id: usuario.id,
           tenantId: usuario.tenantId,
           rol: usuario.rol as RolUsuario,
           email: usuario.email,
-          name: usuario.nombre ?? null,
+          name: usuario.nombre,
         };
+        return user;
       },
     }),
   ],
