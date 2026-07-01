@@ -370,9 +370,14 @@ model Documento {
   expedienteDobleId      String?            @map("expediente_doble_id")
   expedienteDoble        ExpedienteDoble3142? @relation(fields: [expedienteDobleId], references: [id])
 
+  /// Operación a la que pertenece la evidencia (FK directa opcional; Inc 8).
+  operacionId            String?            @map("operacion_id")
+  operacion              Operacion?         @relation(fields: [operacionId], references: [id])
+
   @@index([tenantId, tipo])
   @@index([tenantId, estadoProbatorio])
   @@index([tenantId, vence])
+  @@index([tenantId, operacionId])
   @@map("documento")
 }
 
@@ -406,6 +411,8 @@ model Operacion {
 
   partidas       Partida[]
   pasos          PasoDespacho[]
+  documentos     Documento[]
+  eventos        BitacoraAuditoria[]
 
   @@unique([tenantId, referencia])
   @@index([tenantId, estado])
@@ -571,10 +578,15 @@ model BitacoraAuditoria {
   /// Estado del sello calificado del registro.
   estadoSello EstadoProbatorio @default(EVIDENCIA_PRELIMINAR) @map("estado_sello")
 
+  /// Operación a la que pertenece el evento (FK directa opcional; Inc 8).
+  operacionId String?  @map("operacion_id")
+  operacion   Operacion? @relation(fields: [operacionId], references: [id])
+
   creadoEn    DateTime @default(now()) @map("creado_en")
 
   @@index([tenantId, creadoEn])
   @@index([tenantId, accion])
+  @@index([tenantId, operacionId])
   @@map("bitacora_auditoria")
 }
 

@@ -233,6 +233,8 @@ export async function POST(
           tenantId,
           actor,
           accion: "PASO_DESPACHO",
+          // FK directa a la operación (Incremento 8): evidencia exacta, sin heurística.
+          operacionId: operacion.id,
           payloadRef: `operacion:${operacion.id}:paso:${paso.id}:${data.tipo}`,
           sha256: selloEvento,
           hashPrev,
