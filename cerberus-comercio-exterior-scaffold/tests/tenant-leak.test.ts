@@ -42,12 +42,12 @@ beforeAll(async () => {
   await seed.tenant.upsert({
     where: { id: TENANT_A },
     update: {},
-    create: { id: TENANT_A, nombre: "Tenant A" },
+    create: { id: TENANT_A, nombre: "Tenant A", rfc: "AAA010101AA1" },
   });
   await seed.tenant.upsert({
     where: { id: TENANT_B },
     update: {},
-    create: { id: TENANT_B, nombre: "Tenant B" },
+    create: { id: TENANT_B, nombre: "Tenant B", rfc: "BBB010101BB2" },
   });
 
   const clienteB = await seed.cliente.create({
