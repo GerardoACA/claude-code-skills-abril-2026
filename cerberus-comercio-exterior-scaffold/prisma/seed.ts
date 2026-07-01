@@ -26,20 +26,23 @@ async function main() {
   });
 
   // --- Usuario admin demo ---------------------------------------------------
+  // Credenciales demo: admin@demo.mx / demo1234 (hash scrypt via password.ts).
+  const passwordHashDemo: string = hashPassword("demo1234");
   await prisma.usuario.upsert({
     where: { tenantId_email: { tenantId: tenant.id, email: "admin@demo.mx" } },
-    update: {},
+    update: { passwordHash: passwordHashDemo },
     create: {
       tenantId: tenant.id,
       email: "admin@demo.mx",
       nombre: "Administrador Demo",
       rol: "ADMIN",
+      passwordHash: passwordHashDemo,
       activo: true,
     },
   });
 
   // --- Cliente / importador demo -------------------------------------------
-  await prisma.cliente.upsert({
+  const cliente = await prisma.cliente.upsert({
     where: { tenantId_rfc: { tenantId: tenant.id, rfc: "IMPO020202BBB" } },
     update: {},
     create: {
@@ -48,6 +51,21 @@ async function main() {
       razonSocial: "Importadora Demo S.A. de C.V.",
       estadoCsd: "ACTIVO",
       etapa69b: "NINGUNA",
+    },
+  });
+
+  // --- Operacion demo (para que el tablero tenga datos) --------------------
+  // Ligada al cliente demo; campos requeridos: tenantId, clienteId, referencia.
+  await prisma.operacion.upsert({
+    where: {
+      tenantId_referencia: { tenantId: tenant.id, referencia: "OP-DEMO-0001" },
+    },
+    update: {},
+    create: {
+      tenantId: tenant.id,
+      clienteId: cliente.id,
+      referencia: "OP-DEMO-0001",
+      estado: "ARMADO",
     },
   });
 
@@ -76,7 +94,10 @@ async function main() {
     },
   });
 
-  console.log("Seed completado: 1 Tenant, 1 Usuario, 1 Cliente, 1 VersionAviso.");
+  console.log(
+    "Seed completado: 1 Tenant, 1 Usuario (admin@demo.mx / demo1234), " +
+      "1 Cliente, 1 Operacion, 1 VersionAviso.",
+  );
 }
 
 main()
