@@ -20,6 +20,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
 import { sha256 } from "@/lib/probatoria/hash";
+// [Agente AUTO-DOSSIER, Inc 9] dossier automático al caer en ROJO/INCIDENCIA.
+import { generarDossier, type ResultadoDossier } from "@/lib/dossier-diligencia";
 
 export const runtime = "nodejs";
 
@@ -97,6 +99,8 @@ type Resultado =
       estadoNuevo: EstadoDespacho;
       sha256: string;
       timestamp: string;
+      /** [Inc 9] Dossier de diligencia generado si el destino fue ROJO/INCIDENCIA. */
+      dossier: ResultadoDossier | null;
     }
   | { tipo: "no-encontrada" }
   | { tipo: "transicion-invalida"; actual: EstadoDespacho };
@@ -143,7 +147,8 @@ export async function POST(
       // 1) Cargar la operación (RLS la limita al tenant del JWT).
       const operacion = await tx.operacion.findFirst({
         where: { id },
-        select: { id: true, estado: true },
+        // referencia y clienteId: necesarios para generar el dossier (Inc 9).
+        select: { id: true, estado: true, referencia: true, clienteId: true },
       });
       if (!operacion) {
         return { tipo: "no-encontrada" as const };
@@ -202,6 +207,20 @@ export async function POST(
         select: { sha256: true, creadoEn: true },
       });
 
+      // 6) [Agente AUTO-DOSSIER, Inc 9] Si la operación cayó en ROJO o
+      //    INCIDENCIA, generar el dossier de diligencia DENTRO de la misma
+      //    transacción: snapshot probatorio sellado (incluye el evento de
+      //    cambio de estado recién insertado) + Documento "DOSSIER_DILIGENCIA"
+      //    + evento "DOSSIER_GENERADO" encadenado.
+      let dossier: ResultadoDossier | null = null;
+      if (destino === "ROJO" || destino === "INCIDENCIA") {
+        dossier = await generarDossier(tx, tenantId, actor, {
+          id: actualizada.id,
+          referencia: operacion.referencia,
+          clienteId: operacion.clienteId,
+        });
+      }
+
       return {
         tipo: "ok" as const,
         operacionId: actualizada.id,
@@ -209,6 +228,7 @@ export async function POST(
         estadoNuevo: actualizada.estado as EstadoDespacho,
         sha256: evento.sha256,
         timestamp: evento.creadoEn.toISOString(),
+        dossier,
       };
     });
   } catch {
@@ -244,6 +264,8 @@ export async function POST(
       estadoNuevo: resultado.estadoNuevo,
       sha256: resultado.sha256,
       timestamp: resultado.timestamp,
+      // [Inc 9] presente solo cuando la transición generó dossier (ROJO/INCIDENCIA).
+      ...(resultado.dossier !== null ? { dossier: resultado.dossier } : {}),
     },
     { status: 200 },
   );

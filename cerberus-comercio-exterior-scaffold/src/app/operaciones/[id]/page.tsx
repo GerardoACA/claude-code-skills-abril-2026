@@ -167,6 +167,7 @@ export default async function OperacionDetallePage({
             </p>
             <p style={{ marginTop: "0.75rem", marginBottom: 0 }}><a href={`/operaciones/${encodeURIComponent(operacion.id)}/tramites`} style={{ color: "#2563eb" }}>Trámites del despacho →</a></p>
             <p style={{ marginTop: "0.5rem", marginBottom: 0 }}><a href={`/operaciones/${encodeURIComponent(operacion.id)}/expediente`} style={{ color: "#2563eb" }}>Expediente probatorio →</a></p>
+            <p style={{ marginTop: "0.5rem", marginBottom: 0 }}><a href={`/operaciones/${encodeURIComponent(operacion.id)}/dossier`} style={{ color: "#2563eb" }}>Dossier de diligencia →</a></p>
           </section>
 
           <section style={{ marginTop: "1.5rem" }}>
