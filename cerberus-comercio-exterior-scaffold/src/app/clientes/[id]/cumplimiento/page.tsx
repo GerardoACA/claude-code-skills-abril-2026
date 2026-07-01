@@ -2,7 +2,7 @@
 // =============================================================================
 // Archivo:  src/app/clientes/[id]/cumplimiento/page.tsx
 // Proposito: Muestra el estado de cumplimiento COMPLETO del cliente cubriendo las
-//            6 fuentes (art. 69, 69-B, 69-B Bis, 29 Bis, opinion 32-D, CSD 17-H).
+//            6 fuentes (art. 69, 69-B, 69-B Bis, 49 Bis, opinion 32-D, CSD 17-H).
 //            Por cada fuente presenta su RESULTADO MAS RECIENTE y un semaforo de
 //            color, mas un boton "Verificar todo". Exige sesion valida (si no =>
 //            /login). Carga el Cliente y sus VerificacionCumplimiento
@@ -32,7 +32,7 @@ type FuenteVerificacion =
   | "ART_69"
   | "ART_69B"
   | "ART_69B_BIS"
-  | "ART_29BIS"
+  | "ART_49BIS"
   | "OPINION_32D"
   | "CSD_17H";
 
@@ -60,7 +60,7 @@ const FUENTES: { fuente: FuenteVerificacion; etiqueta: string }[] = [
   { fuente: "ART_69", etiqueta: "Art. 69 CFF (creditos firmes / no localizados)" },
   { fuente: "ART_69B", etiqueta: "Art. 69-B CFF (EFOS/EDOS)" },
   { fuente: "ART_69B_BIS", etiqueta: "Art. 69-B Bis (transmision indebida de perdidas)" },
-  { fuente: "ART_29BIS", etiqueta: "Art. 29 Bis (supuesto que inhabilita)" },
+  { fuente: "ART_49BIS", etiqueta: "Art. 49 Bis CFF (supuesto que inhabilita)" },
   { fuente: "OPINION_32D", etiqueta: "Opinion 32-D (cumplimiento de obligaciones)" },
   { fuente: "CSD_17H", etiqueta: "CSD 17-H (sello digital)" },
 ];
@@ -186,7 +186,7 @@ export default async function CumplimientoPage({ params }: PageProps) {
       >
         Esto es una <strong>alerta</strong>, no un bloqueo (decision C9). El
         sistema solo marca y registra el estado de cumplimiento (arts. 69, 69-B,
-        69-B Bis, 29 Bis, opinion 32-D y CSD 17-H) para que el responsable decida.
+        69-B Bis, 49 Bis, opinion 32-D y CSD 17-H) para que el responsable decida.
         <strong> Nunca impide ninguna operacion del cliente.</strong>
       </div>
 

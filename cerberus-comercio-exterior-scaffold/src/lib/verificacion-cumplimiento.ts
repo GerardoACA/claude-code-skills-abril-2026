@@ -31,7 +31,7 @@ export const FUENTES_VERIFICACION = [
   "ART_69",
   "ART_69B",
   "ART_69B_BIS",
-  "ART_29BIS",
+  "ART_49BIS",
   "OPINION_32D",
   "CSD_17H",
 ] as const;
@@ -79,7 +79,8 @@ const ETIQUETA_FUENTE: Readonly<Record<FuenteVerificacion, string>> = {
   ART_69: "art. 69 CFF (créditos firmes / no localizados)",
   ART_69B: "art. 69-B CFF (EFOS/EDOS)",
   ART_69B_BIS: "art. 69-B Bis CFF (transmisión indebida de pérdidas)",
-  ART_29BIS: "art. 29 Bis CFF (referencia a confirmar por abogado)",
+  ART_49BIS:
+    "Art. 49 Bis CFF (verificación documental en curso por abogado; supuesto de la reforma CFF 2026)",
   OPINION_32D: "art. 32-D CFF (opinión de cumplimiento)",
   CSD_17H: "art. 17-H / 17-H Bis CFF (sello digital)",
 };
@@ -111,8 +112,9 @@ function resultadoPlaceholder(
   if (fuente === "CSD_17H" && normalizado.includes("CSD")) {
     return "ALERTA";
   }
-  // 29 Bis: referencia legal a confirmar → por defecto sin dato disponible.
-  if (fuente === "ART_29BIS") {
+  // 49 Bis: verificación documental en curso por abogado (reforma CFF 2026) →
+  // por defecto sin dato disponible hasta la integración real.
+  if (fuente === "ART_49BIS") {
     return "NO_DISPONIBLE";
   }
   // Resto: al corriente (caso esperado de un cliente en regla).

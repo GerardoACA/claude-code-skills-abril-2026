@@ -15,6 +15,10 @@
 
 import type { Prisma } from "@prisma/client";
 
+// Constantes del dossier (Incremento 9.1): se importan para EXCLUIR del
+// snapshot la huella administrativa del propio dossier (ver nota abajo).
+// Solo se importan consts string; no hay ciclo de evaluación en runtime.
+import { ACCION_DOSSIER, TIPO_DOSSIER } from "@/lib/dossier-diligencia";
 import { canonicalizar, construirCadena } from "@/lib/probatoria/hash-chain";
 import type {
   EntradaExporte,
@@ -119,9 +123,15 @@ async function reunirEventos(
     creadoEn: true,
   } as const;
 
+  // Incremento 9.1: se EXCLUYE el evento "DOSSIER_GENERADO" en TODAS las rutas
+  // de recolección. El dossier ancla la evidencia DE LA OPERACIÓN, no su propia
+  // huella administrativa: si el evento del dossier entrara al paquete, el
+  // sha256 regenerado nunca coincidiría con el sellado (X-Dossier-Match false).
+  const sinDossier = { not: ACCION_DOSSIER } as const;
+
   // 0) FK directa (Incremento 8): eventos ligados EXACTAMENTE a la operación.
   const porFk = (await tx.bitacoraAuditoria.findMany({
-    where: { tenantId, operacionId: operacion.id },
+    where: { tenantId, operacionId: operacion.id, accion: sinDossier },
     select: seleccion,
     orderBy: { creadoEn: "asc" },
   })) as EventoBitacora[];
@@ -133,6 +143,7 @@ async function reunirEventos(
   const directos = (await tx.bitacoraAuditoria.findMany({
     where: {
       tenantId,
+      accion: sinDossier,
       OR: [
         { payloadRef: { contains: operacion.id } },
         { payloadRef: { contains: operacion.referencia } },
@@ -147,7 +158,7 @@ async function reunirEventos(
   }
 
   const recientes = (await tx.bitacoraAuditoria.findMany({
-    where: { tenantId },
+    where: { tenantId, accion: sinDossier },
     select: seleccion,
     orderBy: { creadoEn: "desc" },
     take: MAX_EVENTOS_FALLBACK,
@@ -184,9 +195,16 @@ async function reunirDocumentos(
   tenantId: string,
   operacionId: string,
 ): Promise<{ documentos: readonly DocumentoEvidencia[]; asociacion: string }> {
+  // Incremento 9.1: se EXCLUYE el Documento "DOSSIER_DILIGENCIA" en AMBAS rutas
+  // de recolección. Misma razón que en reunirEventos: el dossier sella la
+  // evidencia de la operación, no su propia huella; incluirlo rompería el
+  // cotejo al regenerar (X-Dossier-Match). La página de dossier lo sigue
+  // listando porque esa lista no usa este snapshot.
+  const sinDossier = { not: TIPO_DOSSIER } as const;
+
   // 0) FK directa (Incremento 8): documentos ligados EXACTAMENTE a la operación.
   const porFk = (await tx.documento.findMany({
-    where: { tenantId, operacionId },
+    where: { tenantId, operacionId, tipo: sinDossier },
     select: SELECCION_DOCUMENTO,
     orderBy: { creadoEn: "asc" },
   })) as DocumentoEvidencia[];
@@ -196,7 +214,7 @@ async function reunirDocumentos(
   }
 
   const docs = (await tx.documento.findMany({
-    where: { tenantId },
+    where: { tenantId, tipo: sinDossier },
     select: SELECCION_DOCUMENTO,
     orderBy: { creadoEn: "asc" },
     take: MAX_DOCUMENTOS,

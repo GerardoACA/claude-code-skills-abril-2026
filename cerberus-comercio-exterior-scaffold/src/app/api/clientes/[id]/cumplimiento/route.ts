@@ -2,7 +2,7 @@
 // =============================================================================
 // Archivo:  src/app/api/clientes/[id]/cumplimiento/route.ts
 // Proposito: POST que corre la verificacion de cumplimiento COMPLETA de un cliente
-//            (las 6 fuentes: art. 69, 69-B, 69-B Bis, 29 Bis, opinion 32-D y CSD
+//            (las 6 fuentes: art. 69, 69-B, 69-B Bis, 49 Bis, opinion 32-D y CSD
 //            17-H) usando el servicio STUB `verificarCumplimiento` de
 //            @/lib/verificacion-cumplimiento, y crea UN registro
 //            VerificacionCumplimiento por cada FuenteVerificacion evaluada.
@@ -41,7 +41,7 @@ type FuenteVerificacion =
   | "ART_69"
   | "ART_69B"
   | "ART_69B_BIS"
-  | "ART_29BIS"
+  | "ART_49BIS"
   | "OPINION_32D"
   | "CSD_17H";
 

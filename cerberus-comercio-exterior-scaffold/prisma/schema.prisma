@@ -592,7 +592,7 @@ model BitacoraAuditoria {
 
 // ============================================================================
 // Verificación de cumplimiento (Incremento 5) — alcance ampliado del KYC
-// más allá del 69-B (art. 69, 69-B, 69-B Bis, 29 Bis, opinión 32-D, CSD 17-H).
+// más allá del 69-B (art. 69, 69-B, 69-B Bis, 49 Bis, opinión 32-D, CSD 17-H).
 // Principio C9: ALERTA y registra, NUNCA bloquea. Alerta69b se conserva.
 // ============================================================================
 
@@ -601,7 +601,9 @@ enum FuenteVerificacion {
   ART_69          // créditos firmes / no localizados (listado SAT)
   ART_69B         // EFOS/EDOS (operaciones inexistentes)
   ART_69B_BIS     // transmisión indebida de pérdidas
-  ART_29BIS       // supuesto que inhabilita operaciones (referencia a confirmar por abogado)
+  ART_49BIS       // supuesto que inhabilita operaciones (art. 49 Bis CFF, confirmado por el
+                  // cliente en Inc 9.1; la migración renombra el valor — si Prisma propone
+                  // drop+add, es aceptable: los datos existentes son stub demo)
   OPINION_32D     // opinión de cumplimiento de obligaciones fiscales
   CSD_17H         // restricción/cancelación de sello digital
 }
