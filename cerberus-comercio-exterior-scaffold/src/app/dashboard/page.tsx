@@ -74,7 +74,22 @@ export default async function DashboardPage() {
             Tenant: <code>{tenantId}</code>
           </p>
         </div>
-        <CerrarSesion />
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+          <a
+            href="/clientes"
+            style={{
+              background: "#2563eb",
+              color: "#fff",
+              padding: "0.5rem 0.9rem",
+              borderRadius: 6,
+              textDecoration: "none",
+              fontSize: "0.95rem",
+            }}
+          >
+            Clientes
+          </a>
+          <CerrarSesion />
+        </div>
       </header>
 
       <div
