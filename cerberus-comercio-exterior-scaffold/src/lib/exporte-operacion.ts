@@ -84,18 +84,20 @@ interface PasoEvidencia {
 const MAX_EVENTOS_FALLBACK = 200;
 
 // -----------------------------------------------------------------------------
-// HEURÍSTICA DE ASOCIACIÓN evento-operación
+// ASOCIACIÓN evento-operación (Incremento 8: FK directa + heurística fallback)
 // -----------------------------------------------------------------------------
-// BitacoraAuditoria NO tiene FK a Operacion en el schema. Sus columnas de enlace
-// son `payloadRef` (referencia libre al payload sellado) y `accion`. Por eso:
+// Desde el Incremento 8, BitacoraAuditoria tiene `operacionId String?` (FK
+// opcional a Operacion). Los eventos nuevos la llevan; los históricos no. Por eso:
 //
-//   1) DIRECTA (preferida): eventos cuyo `payloadRef` CONTIENE el id de la
-//      operación o su `referencia`. Es la única atadura semántica disponible.
-//   2) FALLBACK: si (1) no arroja nada, se toman los eventos MÁS RECIENTES del
-//      tenant (hasta MAX_EVENTOS_FALLBACK), en orden cronológico. Esto es una
+//   0) FK_DIRECTA (preferida): eventos con `operacionId` igual al de la
+//      operación. Vínculo exacto por FK (`asociacion: "fk_directa"`).
+//   1) DIRECTA (heurística): si (0) no arroja nada, eventos cuyo `payloadRef`
+//      CONTIENE el id de la operación o su `referencia`.
+//   2) FALLBACK: si (1) tampoco arroja nada, se toman los eventos MÁS RECIENTES
+//      del tenant (hasta MAX_EVENTOS_FALLBACK), en orden cronológico. Esto es una
 //      aproximación tenant-scoped honesta: se documenta como tal en el payload
-//      (`asociacion: "directa" | "fallback_reciente_tenant"`) para que el perito
-//      sepa que el vínculo evento↔operación es por proximidad, no por FK.
+//      (`asociacion: "fk_directa" | "directa" | "fallback_reciente_tenant"`) para
+//      que el perito sepa cómo se estableció el vínculo evento↔operación.
 //
 // La consulta es tenant-scoped por RLS (la tx ya tiene app.tenant_id fijado); el
 // filtro explícito por tenantId es defensa en profundidad, coherente con el
@@ -116,6 +118,17 @@ async function reunirEventos(
     estadoSello: true,
     creadoEn: true,
   } as const;
+
+  // 0) FK directa (Incremento 8): eventos ligados EXACTAMENTE a la operación.
+  const porFk = (await tx.bitacoraAuditoria.findMany({
+    where: { tenantId, operacionId: operacion.id },
+    select: seleccion,
+    orderBy: { creadoEn: "asc" },
+  })) as EventoBitacora[];
+
+  if (porFk.length > 0) {
+    return { eventos: porFk, asociacion: "fk_directa" };
+  }
 
   const directos = (await tx.bitacoraAuditoria.findMany({
     where: {
@@ -147,32 +160,48 @@ async function reunirEventos(
 
 // -----------------------------------------------------------------------------
 // Documentos de la operación.
-//   Documento NO tiene FK directa a Operacion (solo a los tres expedientes). No
-//   existe forma fiel de ligarlos por operación en el schema actual, así que se
-//   toman los Documentos del tenant (tenant-scoped por RLS) más recientes como
-//   contexto documental del expediente. Se documenta la limitación en el payload.
+//   Desde el Incremento 8, Documento tiene `operacionId String?` (FK opcional a
+//   Operacion). Primero se toman los documentos ligados EXACTAMENTE por FK
+//   (`asociacion: "fk_directa"`); si no hay ninguno (documentos históricos sin
+//   FK), se mantiene el fallback anterior: los Documentos del tenant
+//   (tenant-scoped por RLS) más recientes como contexto documental del
+//   expediente (`asociacion: "contexto_tenant"`).
 // -----------------------------------------------------------------------------
 const MAX_DOCUMENTOS = 200;
+
+const SELECCION_DOCUMENTO = {
+  id: true,
+  tipo: true,
+  sha256: true,
+  wormUrl: true,
+  estadoProbatorio: true,
+  version: true,
+  creadoEn: true,
+} as const;
 
 async function reunirDocumentos(
   tx: Prisma.TransactionClient,
   tenantId: string,
-): Promise<readonly DocumentoEvidencia[]> {
+  operacionId: string,
+): Promise<{ documentos: readonly DocumentoEvidencia[]; asociacion: string }> {
+  // 0) FK directa (Incremento 8): documentos ligados EXACTAMENTE a la operación.
+  const porFk = (await tx.documento.findMany({
+    where: { tenantId, operacionId },
+    select: SELECCION_DOCUMENTO,
+    orderBy: { creadoEn: "asc" },
+  })) as DocumentoEvidencia[];
+
+  if (porFk.length > 0) {
+    return { documentos: porFk, asociacion: "fk_directa" };
+  }
+
   const docs = (await tx.documento.findMany({
     where: { tenantId },
-    select: {
-      id: true,
-      tipo: true,
-      sha256: true,
-      wormUrl: true,
-      estadoProbatorio: true,
-      version: true,
-      creadoEn: true,
-    },
+    select: SELECCION_DOCUMENTO,
     orderBy: { creadoEn: "asc" },
     take: MAX_DOCUMENTOS,
   })) as DocumentoEvidencia[];
-  return docs;
+  return { documentos: docs, asociacion: "contexto_tenant" };
 }
 
 // -----------------------------------------------------------------------------
@@ -258,6 +287,7 @@ function payloadDocumento(
   doc: DocumentoEvidencia,
   expediente: string,
   operacion: OperacionParaExporte,
+  asociacion: string,
   orden: number,
 ): PayloadRegistro {
   return {
@@ -272,8 +302,9 @@ function payloadDocumento(
       wormUrl: doc.wormUrl,
       version: doc.version,
       creadoEn: doc.creadoEn.toISOString(),
-      // Documento no tiene FK a Operacion: enlace por contexto tenant.
-      asociacion: "contexto_tenant",
+      // "fk_directa" si el documento lleva la FK operacionId (Incremento 8);
+      // "contexto_tenant" para históricos sin FK (fallback anterior).
+      asociacion,
     },
     selloOriginal: {
       sha256: doc.sha256,
@@ -333,9 +364,13 @@ export async function construirEntradaExporte(
 ): Promise<EntradaExporte> {
   const expediente = operacion.referencia;
 
-  const [{ eventos, asociacion }, documentos, pasos] = await Promise.all([
+  const [
+    { eventos, asociacion },
+    { documentos, asociacion: asociacionDocs },
+    pasos,
+  ] = await Promise.all([
     reunirEventos(tx, tenantId, operacion),
-    reunirDocumentos(tx, tenantId),
+    reunirDocumentos(tx, tenantId, operacion.id),
     reunirPasos(tx, tenantId, operacion.id),
   ]);
 
@@ -346,7 +381,9 @@ export async function construirEntradaExporte(
     payloads.push(payloadEvento(ev, expediente, operacion, asociacion, orden++));
   }
   for (const doc of documentos) {
-    payloads.push(payloadDocumento(doc, expediente, operacion, orden++));
+    payloads.push(
+      payloadDocumento(doc, expediente, operacion, asociacionDocs, orden++),
+    );
   }
   for (const paso of pasos) {
     payloads.push(payloadPaso(paso, expediente, operacion, orden++));
