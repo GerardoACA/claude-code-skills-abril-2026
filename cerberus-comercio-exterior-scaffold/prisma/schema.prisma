@@ -130,6 +130,7 @@ model Tenant {
   consentimientos           ConsentimientoDatos[]
   bitacora                  BitacoraAuditoria[]
   verificaciones            VerificacionCumplimiento[]
+  pasos                     PasoDespacho[]
 
   @@map("tenant")
 }
@@ -404,6 +405,7 @@ model Operacion {
   actualizadoEn  DateTime       @updatedAt @map("actualizado_en")
 
   partidas       Partida[]
+  pasos          PasoDespacho[]
 
   @@unique([tenantId, referencia])
   @@index([tenantId, estado])
@@ -618,4 +620,39 @@ model VerificacionCumplimiento {
 
   @@index([tenantId, clienteId, fuente])
   @@map("verificacion_cumplimiento")
+}
+
+// ============================================================================
+// Trámite del despacho (Incremento 6) — pasos documentales del despacho:
+// MVE/E2, COVE, Prevalidación (sello), Pago de contribuciones y DODA.
+// Es una lista/checklist por operación; cada paso se sella (sha256) y registra.
+// No bloquea; es registro probatorio.
+// ============================================================================
+
+/// Tipo de paso documental del despacho.
+enum TipoPaso {
+  MVE_E2
+  COVE
+  PREVALIDACION
+  PAGO
+  DODA
+}
+
+/// Paso documental del despacho de una operación (checklist sellado).
+model PasoDespacho {
+  id           String    @id @default(cuid())
+  tenantId     String    @map("tenant_id")
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  operacionId  String    @map("operacion_id")
+  operacion    Operacion @relation(fields: [operacionId], references: [id], onDelete: Cascade)
+  tipo         TipoPaso
+  acuse        String?   // acuse/folio/referencia (MVE, COVE, DODA)
+  sello        String?   // sello de prevalidación
+  monto        Decimal?  @db.Decimal(14, 2)  // para PAGO (total de contribuciones)
+  detalle      String?
+  sha256       String    @db.Char(64)
+  completadoEn DateTime  @default(now()) @map("completado_en")
+
+  @@index([tenantId, operacionId, tipo])
+  @@map("paso_despacho")
 }
