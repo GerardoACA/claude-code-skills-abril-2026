@@ -13,7 +13,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 
 // --------------------------------------------------------------------------
 // Tipos del cliente y expediente que recibe el componente (server -> client).
@@ -191,7 +191,7 @@ export function CuestionarioKyc({ cliente, expediente }: Props) {
     );
   }
 
-  const inputStyle: React.CSSProperties = {
+  const inputStyle: CSSProperties = {
     display: "block",
     width: "100%",
     padding: "0.5rem 0.65rem",
@@ -200,7 +200,7 @@ export function CuestionarioKyc({ cliente, expediente }: Props) {
     borderRadius: 6,
     fontSize: "0.95rem",
   };
-  const labelStyle: React.CSSProperties = {
+  const labelStyle: CSSProperties = {
     display: "block",
     marginTop: "1rem",
     fontSize: "0.9rem",
