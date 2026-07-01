@@ -47,7 +47,7 @@ export function AvanzarEstado({
   operacionId,
   estadoActual,
   transicionesPermitidas,
-}: AvanzarEstadoProps): React.JSX.Element {
+}: AvanzarEstadoProps) {
   const router = useRouter();
   const [enviando, setEnviando] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
