@@ -142,6 +142,34 @@ export default async function DashboardPage() {
           >
             Operaciones
           </a>
+          {/* [Inc 19] Tablero ejecutivo con métricas (cualquier rol autenticado). */}
+          <a
+            href="/tablero-ejecutivo"
+            style={{
+              background: "#1d4ed8",
+              color: "#fff",
+              padding: "0.5rem 0.9rem",
+              borderRadius: 6,
+              textDecoration: "none",
+              fontSize: "0.95rem",
+            }}
+          >
+            Tablero ejecutivo
+          </a>
+          {/* [Inc 17] Contrato de encargo LFPDPPP por tenant (generación solo ADMIN). */}
+          <a
+            href="/contrato-encargo"
+            style={{
+              background: "#0f766e",
+              color: "#fff",
+              padding: "0.5rem 0.9rem",
+              borderRadius: 6,
+              textDecoration: "none",
+              fontSize: "0.95rem",
+            }}
+          >
+            Contrato de encargo
+          </a>
           {/* [Agente SERVICIO-12, Inc 12] enlace solo-ADMIN a /admin/listados */}
           {esAdmin ? (
             <a
@@ -156,6 +184,37 @@ export default async function DashboardPage() {
               }}
             >
               Listados (admin)
+            </a>
+          ) : null}
+          {/* [Inc 18 / Inc 21] Gestión de usuarios y estado de conectores (solo ADMIN). */}
+          {esAdmin ? (
+            <a
+              href="/usuarios"
+              style={{
+                background: "#7c3aed",
+                color: "#fff",
+                padding: "0.5rem 0.9rem",
+                borderRadius: 6,
+                textDecoration: "none",
+                fontSize: "0.95rem",
+              }}
+            >
+              Usuarios
+            </a>
+          ) : null}
+          {esAdmin ? (
+            <a
+              href="/admin/conectores"
+              style={{
+                background: "#475569",
+                color: "#fff",
+                padding: "0.5rem 0.9rem",
+                borderRadius: 6,
+                textDecoration: "none",
+                fontSize: "0.95rem",
+              }}
+            >
+              Conectores
             </a>
           ) : null}
           <CerrarSesion />

@@ -266,6 +266,17 @@ export default async function CumplimientoPage({ params }: PageProps) {
         <strong>{cliente.razonSocial}</strong> ·{" "}
         <code style={{ fontFamily: "monospace" }}>{cliente.rfc}</code>
       </p>
+      {/* [Inc 20] Entrega + validación de autenticidad de la e.firma para
+          sustentar la opinión 32-D (el cliente entrega su .cer público; la
+          clave privada nunca entra al sistema — C14). */}
+      <p style={{ margin: "0.5rem 0 0" }}>
+        <a
+          href={`/clientes/${encodeURIComponent(cliente.id)}/efirma`}
+          style={{ color: "#2563eb", fontSize: "0.9rem" }}
+        >
+          Gestionar e.firma / opinión 32-D →
+        </a>
+      </p>
 
       <div
         style={{

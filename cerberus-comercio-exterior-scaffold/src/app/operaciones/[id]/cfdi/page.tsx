@@ -19,6 +19,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
 import { CfdiCartaPorteForm } from "@/components/CfdiCartaPorteForm";
+// [Inc 16] Complemento de Comercio Exterior 1.1 (CFDI de ingreso — exportación).
+import { CfdiComercioExtForm } from "@/components/CfdiComercioExtForm";
 import { CfdiAcciones, type EstadoCfdi } from "@/components/CfdiAcciones";
 
 // Depende de la sesión/DB: no debe pre-renderizarse en build.
@@ -288,6 +290,35 @@ export default async function CfdiPage({
               Capturar CFDI de traslado (Carta Porte 3.1)
             </h2>
             <CfdiCartaPorteForm operacionId={operacion.id} />
+          </section>
+
+          {/* [Inc 16] Complemento de Comercio Exterior 1.1 — CFDI de INGRESO que
+              ampara la exportación definitiva de mercancías (clave de pedimento
+              A1). Se valida país (c_Pais), fracción arancelaria (8 dígitos),
+              tipo de cambio y valores en dólares antes de sellar el borrador. */}
+          <section style={{ marginTop: "1.5rem" }}>
+            <div
+              style={{
+                padding: "0.9rem 1.1rem",
+                background: "#f0fdfa",
+                border: "1px solid #99f6e4",
+                borderRadius: 10,
+                color: "#115e59",
+                fontSize: "0.9rem",
+                marginBottom: "1rem",
+              }}
+            >
+              El <strong>Complemento de Comercio Exterior 1.1</strong> es obligatorio
+              en el CFDI de ingreso que ampara la <strong>exportación definitiva</strong>{" "}
+              (clave de pedimento A1) de mercancías. Se validan país del receptor,
+              fracción arancelaria, tipo de cambio y valores en dólares antes de
+              sellar el borrador. El timbrado va por el conector PAC (hoy sin
+              configurar: queda en borrador sellado).
+            </div>
+            <h2 style={{ fontSize: "1.1rem" }}>
+              Capturar CFDI de ingreso (Comercio Exterior 1.1)
+            </h2>
+            <CfdiComercioExtForm operacionId={operacion.id} />
           </section>
         </>
       )}

@@ -164,6 +164,7 @@ model Tenant {
   pasos                     PasoDespacho[]
   comprobantes              ComprobanteCfdi[]
   overrides                 OverrideAlerta[]
+  efirmasEntregadas         EfirmaEntregada[]
 
   @@map("tenant")
 }
@@ -238,6 +239,7 @@ model Cliente {
   alertas69b           Alerta69b[]
   verificaciones       VerificacionCumplimiento[]
   overrides            OverrideAlerta[]
+  efirmasEntregadas    EfirmaEntregada[]
 
   @@unique([tenantId, rfc])
   @@index([tenantId, estadoCsd])
@@ -819,4 +821,67 @@ model OverrideAlerta {
 
   @@index([tenantId, clienteId, fuente])
   @@map("override_alerta")
+}
+
+// ============================================================================
+// e.firma entregada + validación de autenticidad (Incremento 20) — la opinión
+// de cumplimiento (32-D) requiere la e.firma del contribuyente para consultarse
+// en vivo ante el SAT. Como los clientes/proveedores NO siempre otorgan acceso
+// directo, se les permite ENTREGAR su e.firma y un validador automático analiza
+// la AUTENTICIDAD del certificado (emisor SAT, vigencia, RFC, huella) y deja un
+// veredicto motivado.
+//
+// SEGURIDAD (decisión C14): SOLO se recibe/almacena el certificado PÚBLICO
+// (.cer, X.509). La clave privada (.key) NUNCA se recibe ni se almacena; el
+// endpoint la RECHAZA si detecta material privado. El certificado público es
+// información pública por naturaleza (se publica al firmar). La consulta EN VIVO
+// de la opinión 32-D ante el SAT/PSC sigue diferida (conector); esta capa
+// habilita y sustenta esa gestión con una e.firma validada como auténtica.
+// ============================================================================
+
+/// Veredicto del validador automático de autenticidad de una e.firma entregada.
+/// C9: incluso INVALIDA es una ALERTA registrada para revisión humana, no un
+/// bloqueo de la operación del cliente.
+enum ResultadoValidacionEfirma {
+  VALIDA          // certificado auténtico (emisor SAT), vigente y RFC coincide
+  ALERTA          // estructuralmente válido pero con observaciones (RFC no coincide, por vencer)
+  INVALIDA        // emisor no reconocido, vencido o alterado
+  NO_VERIFICABLE  // no se pudo parsear/analizar el material entregado
+}
+
+/// e.firma (certificado público .cer) entregada por el cliente/proveedor para
+/// sustentar la gestión de su opinión de cumplimiento (32-D). Se guarda SOLO el
+/// certificado público y los metadatos extraídos; la clave privada nunca entra
+/// al sistema (C14).
+model EfirmaEntregada {
+  id             String   @id @default(cuid())
+  tenantId       String   @map("tenant_id")
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clienteId      String   @map("cliente_id")
+  cliente        Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  /// Nombre del archivo entregado (referencia legible, p. ej. "efirma.cer").
+  nombreArchivo  String?  @map("nombre_archivo")
+  /// SHA-256 (hex, 64 chars) del certificado (DER) entregado — huella del archivo.
+  sha256         String   @db.Char(64)
+  /// RFC extraído del subject del certificado (si se pudo determinar).
+  rfcCertificado String?  @map("rfc_certificado")
+  /// Titular (subject/CN) del certificado.
+  titular        String?
+  /// Número de serie del certificado.
+  serie          String?
+  /// Emisor (issuer) del certificado.
+  emisor         String?
+  /// Vigencia del certificado.
+  validoDesde    DateTime? @map("valido_desde")
+  validoHasta    DateTime? @map("valido_hasta")
+  /// Veredicto de la validación automática de autenticidad.
+  resultado      ResultadoValidacionEfirma
+  /// Observaciones/checks del validador (JSON serializado: lista de comprobaciones).
+  observaciones  String
+  /// Actor (del JWT) que registró la entrega.
+  actor          String
+  creadoEn       DateTime @default(now()) @map("creado_en")
+
+  @@index([tenantId, clienteId])
+  @@map("efirma_entregada")
 }
