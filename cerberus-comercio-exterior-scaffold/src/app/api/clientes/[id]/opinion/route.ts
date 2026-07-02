@@ -28,23 +28,102 @@ import { sha256 } from "@/lib/probatoria/hash";
 import { canonicalizar } from "@/lib/probatoria/hash-chain";
 import { analizarOpinion, type AnalisisOpinion, type SentidoOpinion } from "@/lib/validador-opinion";
 import { obtenerVerificadorOpinion, type EstadoCotejoSat } from "@/lib/verificador-opinion-sat";
+import { certificadosEmisor, verificarSelloOpinion } from "@/lib/sello-opinion";
+import { extractText, getDocumentProxy } from "unpdf";
 
 export const runtime = "nodejs";
 
 const bodySchema = z
   .object({
     // Texto de la opinión (copiado/OCR del PDF impreso). Opcional si se aporta la
-    // URL del QR (flujo "solo QR": el software decodifica el QR de una imagen y
-    // coteja en vivo sin necesidad del texto completo).
+    // URL del QR o el PDF.
     texto: z.string().trim().max(262144).optional(),
     nombreArchivo: z.string().trim().max(256).optional(),
     // URL del QR (decodificada en el navegador desde una imagen, o escaneada).
-    // Habilita el cotejo EN VIVO contra la página de verificación del SAT.
     urlQr: z.string().trim().url("La URL del QR no es válida").max(2048).optional(),
+    // PDF de la opinión en base64: el servidor extrae el texto (y la Cadena
+    // Original + Sello) con unpdf. Límite ~9 MB en base64.
+    pdfBase64: z.string().max(12_000_000).optional(),
   })
-  .refine((d) => (d.texto !== undefined && d.texto.length >= 40) || d.urlQr !== undefined, {
-    message: "Aporta el texto de la opinión (mín. 40 caracteres) o la URL del QR.",
+  .refine(
+    (d) =>
+      (d.texto !== undefined && d.texto.length >= 40) ||
+      d.urlQr !== undefined ||
+      (d.pdfBase64 !== undefined && d.pdfBase64.length > 0),
+    { message: "Aporta el PDF de la opinión, su texto (mín. 40 caracteres) o la URL del QR." },
+  );
+
+/** Extrae el texto de un PDF (base64) con unpdf. Devuelve "" si falla. */
+async function textoDePdf(pdfBase64: string): Promise<string> {
+  try {
+    const buf = Buffer.from(pdfBase64, "base64");
+    const pdf = await getDocumentProxy(new Uint8Array(buf));
+    const { text } = await extractText(pdf, { mergePages: true });
+    return typeof text === "string" ? text : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Coteja la opinión. PRIORIDAD:
+ *   1) Sello digital (SAT/IMSS) verificado CRIPTOGRÁFICAMENTE contra el
+ *      certificado del emisor (si está configurado): CONFIRMADA / DISCREPANCIA.
+ *   2) Cotejo EN VIVO por QR/URL del SAT (o gateway HTTP).
+ *   3) NO_DISPONIBLE (con nota si hay sello pero falta el certificado).
+ */
+async function cotejarOpinion(
+  analisis: AnalisisOpinion | null,
+  rfcCliente: string,
+  urlQr: string | undefined,
+): Promise<{ estado: EstadoCotejoSat; detalle: string; sentidoSat?: string | null }> {
+  const urlLive = urlQr ?? analisis?.urlVerificacion ?? null;
+
+  if (analisis && analisis.cadenaOriginal && analisis.selloBase64) {
+    const certs = certificadosEmisor(analisis.emisor);
+    if (certs.length > 0) {
+      for (const cert of certs) {
+        const r = verificarSelloOpinion({
+          cadenaOriginal: analisis.cadenaOriginal,
+          selloBase64: analisis.selloBase64,
+          certificado: cert,
+        });
+        if (r.valido) {
+          return {
+            estado: "CONFIRMADA",
+            detalle: `Cotejo criptográfico (${analisis.emisor}): ${r.detalle}`,
+            sentidoSat: analisis.sentido,
+          };
+        }
+      }
+      return {
+        estado: "DISCREPANCIA",
+        detalle: `Cotejo criptográfico (${analisis.emisor}): el sello NO valida contra el certificado del emisor (documento alterado o certificado incorrecto).`,
+        sentidoSat: analisis.sentido,
+      };
+    }
+    // Sello presente pero sin certificado configurado: intentar cotejo en vivo.
+    const live = await obtenerVerificadorOpinion().cotejar({
+      rfc: rfcCliente,
+      folio: analisis.folio,
+      sentidoDeclarado: analisis.sentido,
+      urlVerificacion: urlLive,
+    });
+    if (live.estado === "CONFIRMADA" || live.estado === "DISCREPANCIA") return live;
+    return {
+      estado: "NO_DISPONIBLE",
+      detalle: `Sello digital ${analisis.emisor} presente, pero falta el certificado público del emisor (define ${analisis.emisor}_OPINION_CERT) para el cotejo criptográfico. La autenticidad estructural (cadena original + sello) sí está confirmada.`,
+    };
+  }
+
+  // Sin cadena/sello: cotejo en vivo (QR/HTTP).
+  return obtenerVerificadorOpinion().cotejar({
+    rfc: rfcCliente,
+    folio: analisis?.folio ?? null,
+    sentidoDeclarado: analisis?.sentido ?? "INDETERMINADO",
+    urlVerificacion: urlLive,
   });
+}
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -57,6 +136,7 @@ type ResultadoPost =
       resumen: string;
       checks: AnalisisOpinion["checks"];
       extraido: {
+        emisor: string;
         rfc: string | null;
         folio: string | null;
         sentido: SentidoOpinion;
@@ -176,7 +256,18 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
       { status: 400 },
     );
   }
-  const { texto, nombreArchivo, urlQr } = parseado.data;
+  const { texto, nombreArchivo, urlQr, pdfBase64 } = parseado.data;
+
+  // Si viene el PDF, extraer su texto en el servidor (trae Cadena Original +
+  // Sello). Se prefiere el texto del PDF; si falla, se usa el texto pegado.
+  const textoPdf = pdfBase64 ? await textoDePdf(pdfBase64) : "";
+  const textoEfectivo = textoPdf.trim().length >= 40 ? textoPdf : (texto ?? "");
+  if (pdfBase64 && textoPdf.trim().length < 40 && (texto ?? "").length < 40 && urlQr === undefined) {
+    return NextResponse.json(
+      { error: "No se pudo extraer texto del PDF (¿es una imagen escaneada sin capa de texto?). Pega el texto o la URL del QR." },
+      { status: 400 },
+    );
+  }
 
   let salida: ResultadoPost;
   try {
@@ -189,22 +280,15 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
 
       // Análisis textual solo si hay texto suficiente; si es flujo "solo QR",
       // no hay texto y el veredicto proviene del cotejo en vivo.
-      const hayTexto = texto !== undefined && texto.length >= 40;
-      const analisis = hayTexto ? analizarOpinion(texto, cliente.rfc) : null;
+      const hayTexto = textoEfectivo.length >= 40;
+      const analisis = hayTexto ? analizarOpinion(textoEfectivo, cliente.rfc) : null;
       const textoOriginal = hayTexto
-        ? texto
+        ? textoEfectivo
         : `(Verificación por QR sin texto de opinión). URL: ${urlQr ?? "—"}`;
-      const urlParaCotejo = urlQr ?? analisis?.urlVerificacion ?? null;
 
-      // Cotejo EN VIVO: prioriza la URL del QR (decodificada de la imagen o
-      // escaneada); si no, la extraída del texto. El verificador (Auto) coteja
-      // contra la página del SAT (dominio permitido) o el gateway configurado.
-      const cotejo = await obtenerVerificadorOpinion().cotejar({
-        rfc: cliente.rfc,
-        folio: analisis?.folio ?? null,
-        sentidoDeclarado: analisis?.sentido ?? "INDETERMINADO",
-        urlVerificacion: urlParaCotejo,
-      });
+      // Cotejo: sello criptográfico (SAT/IMSS) si hay cadena+sello+certificado;
+      // si no, cotejo en vivo por QR/URL del SAT o gateway configurado.
+      const cotejo = await cotejarOpinion(analisis, cliente.rfc, urlQr);
 
       // Sentido efectivo: el del documento si se detectó; si no, el que reportó
       // el SAT en el cotejo (clave para el flujo "solo QR").
@@ -216,6 +300,7 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
       const huella = analisis?.sha256 ?? sha256(textoOriginal);
       const resumen = analisis?.resumen ?? "Verificación por QR (sin análisis de texto).";
       const checks = analisis?.checks ?? [];
+      const emisor = analisis?.emisor ?? "DESCONOCIDO";
 
       const ts = new Date();
       const opinion = await tx.opinionCumplimientoIngestada.create({
@@ -230,7 +315,13 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
           sentido: sentidoEfectivo,
           fechaEmision: analisis?.fechaEmision ? new Date(analisis.fechaEmision) : null,
           resultado: veredicto,
-          observaciones: JSON.stringify({ resumen, checks, urlCotejo: urlParaCotejo }),
+          observaciones: JSON.stringify({
+            emisor,
+            resumen,
+            checks,
+            cadenaOriginal: analisis?.cadenaOriginal ?? null,
+            selloPresente: analisis?.selloBase64 !== null && analisis?.selloBase64 !== undefined,
+          }),
           cotejoEnVivo: cotejo.estado,
           cotejoDetalle: cotejo.detalle,
           actor,
@@ -296,6 +387,7 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
         resumen,
         checks,
         extraido: {
+          emisor,
           rfc: analisis?.rfcDocumento ?? null,
           folio: analisis?.folio ?? null,
           sentido: sentidoEfectivo,

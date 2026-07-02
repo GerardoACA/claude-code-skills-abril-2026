@@ -25,10 +25,21 @@ type RespuestaOk = {
   veredicto: Veredicto;
   resumen: string;
   checks: Check[];
-  extraido: { rfc: string | null; folio: string | null; sentido: string; fechaEmision: string | null };
+  extraido: { emisor: string; rfc: string | null; folio: string | null; sentido: string; fechaEmision: string | null };
   cotejo: { estado: string; detalle: string };
   opinion32d: { resultado: string; detalle: string };
 };
+
+/** ArrayBuffer -> base64 (sin dependencias). */
+function bufABase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
 
 const COLOR: Record<Veredicto, { fondo: string; borde: string; texto: string }> = {
   AUTENTICA: { fondo: "#ecfdf5", borde: "#a7f3d0", texto: "#065f46" },
@@ -47,7 +58,26 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
   const [resultado, setResultado] = useState<RespuestaOk | null>(null);
   const [qrEstado, setQrEstado] = useState<string | null>(null);
   const [decodificando, setDecodificando] = useState<boolean>(false);
+  const [pdfBase64, setPdfBase64] = useState<string>("");
+  const [pdfEstado, setPdfEstado] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Carga el PDF de la opinión: se envía en base64 y el SERVIDOR extrae su texto
+  // (Cadena Original + Sello) con unpdf. Sin cámara, sin copiar/pegar.
+  async function alSeleccionarPdf(e: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    setNombreArchivo(file.name);
+    try {
+      const buf = await file.arrayBuffer();
+      setPdfBase64(bufABase64(buf));
+      setPdfEstado(`PDF cargado: ${file.name} (${Math.round(file.size / 1024)} KB). El servidor extraerá la cadena original y el sello.`);
+    } catch {
+      setPdfEstado(null);
+      setError("No se pudo leer el PDF.");
+    }
+  }
 
   // Decodifica el QR de una imagen EN EL NAVEGADOR (sin cámara): la dibuja en un
   // canvas, extrae los píxeles y los pasa a jsQR. Devuelve el contenido del QR
@@ -131,9 +161,10 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          texto: texto.trim(),
+          ...(texto.trim() ? { texto: texto.trim() } : {}),
           ...(nombreArchivo ? { nombreArchivo } : {}),
           ...(urlQr.trim() ? { urlQr: urlQr.trim() } : {}),
+          ...(pdfBase64 ? { pdfBase64 } : {}),
         }),
       });
       const data: unknown = await res.json();
@@ -151,6 +182,8 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
       setUrlQr("");
       setNombreArchivo("");
       setQrEstado(null);
+      setPdfBase64("");
+      setPdfEstado(null);
       router.refresh();
     } catch {
       setError("Error de red al contactar el servidor.");
@@ -187,14 +220,31 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
           marginBottom: "1rem",
         }}
       >
-        Pega el texto de la <strong>opinión de cumplimiento (32-D)</strong> que el
-        cliente entregó (del PDF/impreso). La IA valida su autenticidad
-        (marcadores del SAT, folio, RFC, sentido) para detectar documentos falsos.
-        Toda opinión vigente trae un <strong>código QR</strong>: escanéalo y pega
-        aquí su <strong>URL</strong> para el <strong>cotejo en vivo ante el SAT</strong>
-        (compara folio, RFC y sentido con la página oficial; no requiere la e.firma
-        del cliente). Solo se abren URLs del dominio del SAT.
+        Sube el <strong>PDF</strong> de la opinión de cumplimiento —del{" "}
+        <strong>SAT (32-D)</strong> o del <strong>IMSS (seguridad social)</strong>—
+        y el sistema extrae su <strong>Cadena Original</strong> y su{" "}
+        <strong>Sello Digital</strong>, detecta el emisor y valida la autenticidad.
+        Si hay certificado público del emisor configurado, verifica el sello{" "}
+        <strong>criptográficamente</strong> (como un CFDI): si alteraron RFC, folio
+        o sentido, no valida. Alternativamente puedes pegar el texto o la URL del QR.
       </div>
+
+      {/* [Inc 26] PDF directo: el servidor extrae texto (Cadena Original + Sello)
+          con unpdf, detecta SAT/IMSS y valida el sello criptográficamente. */}
+      <label htmlFor="op-pdf" style={labelStyle}>
+        <strong>PDF de la opinión</strong> (SAT o IMSS) — recomendado
+      </label>
+      <input
+        id="op-pdf"
+        type="file"
+        accept="application/pdf,.pdf"
+        disabled={enviando}
+        onChange={(e) => void alSeleccionarPdf(e)}
+        style={inputStyle}
+      />
+      {pdfEstado !== null && (
+        <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "#065f46" }}>✓ {pdfEstado}</p>
+      )}
 
       {/* [Inc 24] Decodificación del QR desde una IMAGEN, sin cámara: el software
           lee el QR de la foto/captura de la opinión y obtiene la URL del SAT. */}
@@ -264,13 +314,15 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
 
       <button
         type="button"
-        disabled={enviando || (texto.trim().length < 40 && urlQr.trim().length === 0)}
+        disabled={enviando || (texto.trim().length < 40 && urlQr.trim().length === 0 && pdfBase64.length === 0)}
         onClick={() => void enviar()}
         style={{
           marginTop: "1rem",
           padding: "0.6rem 1.1rem",
           background:
-            enviando || (texto.trim().length < 40 && urlQr.trim().length === 0) ? "#94a3b8" : "#2563eb",
+            enviando || (texto.trim().length < 40 && urlQr.trim().length === 0 && pdfBase64.length === 0)
+              ? "#94a3b8"
+              : "#2563eb",
           color: "#fff",
           border: "none",
           borderRadius: 8,
@@ -307,7 +359,8 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
             ))}
           </ul>
           <p style={{ margin: "0.5rem 0 0", fontSize: "0.85rem" }}>
-            Extraído — RFC: <strong>{resultado.extraido.rfc ?? "—"}</strong> · Folio:{" "}
+            Emisor: <strong>{resultado.extraido.emisor}</strong> · RFC:{" "}
+            <strong>{resultado.extraido.rfc ?? "—"}</strong> · Folio:{" "}
             <strong>{resultado.extraido.folio ?? "—"}</strong> · Sentido:{" "}
             <strong>{resultado.extraido.sentido}</strong>
           </p>
