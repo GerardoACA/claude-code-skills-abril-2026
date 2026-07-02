@@ -38,6 +38,11 @@ let clienteDeB_id: string;
 let operacionDeB_id: string;
 
 beforeAll(async () => {
+  // Idempotencia: limpiar datos de corridas previas para estos tenants de prueba
+  // (via rol owner, fuera de RLS). Orden respeta FKs: operacion -> cliente -> tenant.
+  await seed.operacion.deleteMany({ where: { tenantId: { in: [TENANT_A, TENANT_B] } } });
+  await seed.cliente.deleteMany({ where: { tenantId: { in: [TENANT_A, TENANT_B] } } });
+
   // Plantar dos tenants y datos propios de cada uno (via rol owner, fuera de RLS app).
   await seed.tenant.upsert({
     where: { id: TENANT_A },

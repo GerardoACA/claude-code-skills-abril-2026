@@ -55,6 +55,44 @@ COMMENT ON FUNCTION app_current_tenant_id() IS
   'hay contexto => las politicas RLS niegan acceso (fail-closed).';
 
 -- -----------------------------------------------------------------------------
+-- 0b. Helper de sistema (Incremento 11 — Vigia): enumera los ids de TODOS los
+--     tenants para el barrido del cron. La tabla `tenant` tiene FORCE RLS y el
+--     rol de la app NO tiene BYPASSRLS, asi que NO puede listarlos con una
+--     consulta directa (fail-closed la vacia). Esta funcion SECURITY DEFINER se
+--     crea con el rol DUENO (que si bypassa RLS) y expone SOLO los ids (no datos)
+--     al rol de la app. No debilita el aislamiento: conocer un id no da acceso a
+--     datos de otro tenant (eso sigue exigiendo fijar app.tenant_id en servidor).
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION app_listar_tenant_ids()
+RETURNS SETOF text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT id FROM public.tenant
+$$;
+
+COMMENT ON FUNCTION app_listar_tenant_ids() IS
+  'CERBERUS COMERCIO EXTERIOR (Inc 11): enumera ids de tenants para el barrido '
+  'del vigia. SECURITY DEFINER (owner con BYPASSRLS) porque tenant tiene FORCE RLS. '
+  'Solo devuelve ids, no datos tenant-scoped.';
+
+-- Solo el rol de la app puede ejecutarla (no PUBLIC). Guardado por si 01 se
+-- aplica antes de crear el rol (02-app-role.sql).
+REVOKE ALL ON FUNCTION app_listar_tenant_ids() FROM PUBLIC;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'cerberus_ce_app') THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION app_listar_tenant_ids() TO cerberus_ce_app';
+    RAISE NOTICE 'GRANT EXECUTE app_listar_tenant_ids() a cerberus_ce_app';
+  ELSE
+    RAISE NOTICE 'rol cerberus_ce_app ausente: se omite GRANT de app_listar_tenant_ids (reaplica 01 tras 02)';
+  END IF;
+END
+$$;
+
+-- -----------------------------------------------------------------------------
 -- 1. TABLA RAIZ: tenant. Se aisla por su propia PK: una sesion solo ve SU fila.
 --    (Se asume @@map("tenant") en el schema del Agente B; si el modelo Tenant
 --     no se mapeara a "tenant", el bloque dinamico del paso 2 NO lo cubre porque
