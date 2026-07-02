@@ -97,7 +97,12 @@ export async function sincronizarListados(
       const { texto, sha256 } = await descargarListado(url);
 
       // 2) Parsear (salta preámbulo, detecta columnas RFC/razón social/situación).
-      const entradas = parsearCsvListado(texto, fuente);
+      //    Las fuentes SAT EXIGEN RFC: desde Inc 12 EntradaParseada.rfc es
+      //    opcional (solo SANCIONES_INT emite null), así que se filtra
+      //    defensivamente toda entrada sin RFC antes de persistir.
+      const entradas = parsearCsvListado(texto, fuente).filter(
+        (e): e is typeof e & { rfc: string } => e.rfc !== null,
+      );
 
       // 3) Crear la importación (snapshot sellado: sha256 del archivo + fecha).
       const importacion = await prisma.importacionListadoSat.create({

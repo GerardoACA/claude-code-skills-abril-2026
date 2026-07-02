@@ -86,6 +86,10 @@ export default async function DashboardPage() {
 
   const nombreUsuario = session.user.name ?? session.user.email ?? "Usuario";
   const tenantId = session.user.tenantId;
+  // [Agente SERVICIO-12, Inc 12] El rol proviene del JWT verificado: solo ADMIN
+  // ve el enlace a la administración de listados (la defensa real la imponen
+  // la página /admin/listados y sus endpoints, no este condicional de UX).
+  const esAdmin = session.user.rol === "ADMIN";
 
   return (
     <main style={{ maxWidth: 960, margin: "0 auto", padding: "3rem 1.5rem" }}>
@@ -138,6 +142,22 @@ export default async function DashboardPage() {
           >
             Operaciones
           </a>
+          {/* [Agente SERVICIO-12, Inc 12] enlace solo-ADMIN a /admin/listados */}
+          {esAdmin ? (
+            <a
+              href="/admin/listados"
+              style={{
+                background: "#0f766e",
+                color: "#fff",
+                padding: "0.5rem 0.9rem",
+                borderRadius: 6,
+                textDecoration: "none",
+                fontSize: "0.95rem",
+              }}
+            >
+              Listados (admin)
+            </a>
+          ) : null}
           <CerrarSesion />
         </div>
       </header>

@@ -606,6 +606,9 @@ enum FuenteVerificacion {
                   // drop+add, es aceptable: los datos existentes son stub demo)
   OPINION_32D     // opinión de cumplimiento de obligaciones fiscales
   CSD_17H         // restricción/cancelación de sello digital
+  SANCIONES_INT   // listas de sanciones internacionales (OFAC/SDN, ONU, UE, UK…)
+                  // por ingesta manual; identifican por NOMBRE → match heurístico
+                  // = SIEMPRE ALERTA con revisión humana (C9; Inc 12)
 }
 
 /// Resultado de la verificación por fuente.
@@ -685,6 +688,10 @@ model ImportacionListadoSat {
   url          String
   sha256Archivo String  @db.Char(64) @map("sha256_archivo")
   filas        Int
+  /// Origen de la importación: AUTOMATICA (sync/cron) | MANUAL (ingesta admin; Inc 12).
+  origen       String   @default("AUTOMATICA")
+  /// Organismo emisor de la lista (p. ej. SAT, OFAC, ONU, UE, UK). Inc 12.
+  emisor       String?
   importadoEn  DateTime @default(now()) @map("importado_en")
   entradas     ListadoSatEntrada[]
   @@index([fuente, importadoEn])
@@ -697,9 +704,12 @@ model ListadoSatEntrada {
   importacionId String   @map("importacion_id")
   importacion   ImportacionListadoSat @relation(fields: [importacionId], references: [id], onDelete: Cascade)
   fuente        FuenteVerificacion
-  rfc           String
+  /// RFC opcional desde Inc 12: las listas internacionales (SANCIONES_INT)
+  /// identifican por NOMBRE y no traen RFC. Las fuentes SAT siguen exigiéndolo.
+  rfc           String?
   razonSocial   String?  @map("razon_social")
   situacion     String?  // texto de la columna "situación" del CSV (Presunto/Definitivo/etc.)
   @@index([rfc, fuente])
+  @@index([razonSocial])
   @@map("listado_sat_entrada")
 }

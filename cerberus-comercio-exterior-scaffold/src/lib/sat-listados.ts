@@ -45,6 +45,13 @@ import { sha256 } from "@/lib/probatoria/hash";
 /** Fuentes de verificación que se alimentan de listados públicos del SAT. */
 export type FuenteListadoSat = "ART_69" | "ART_69B" | "ART_69B_BIS" | "ART_49BIS";
 
+/**
+ * Fuentes aceptadas por `parsearCsvListado` (Inc 12): las 4 de listados SAT
+ * más SANCIONES_INT (listas internacionales OFAC/ONU/UE/UK por ingesta manual,
+ * que identifican por NOMBRE y pueden no traer RFC).
+ */
+export type FuenteCsvListado = FuenteListadoSat | "SANCIONES_INT";
+
 /** Configuración de una fuente de listado (URL efectiva + descripción). */
 export interface FuenteListadoConfig {
   /** URL efectiva del CSV (override por env) o null si no hay URL conocida. */
@@ -55,8 +62,12 @@ export interface FuenteListadoConfig {
 
 /** Entrada individual parseada de un CSV de listado del SAT. */
 export interface EntradaParseada {
-  /** RFC normalizado (mayúsculas, sin espacios), 12-13 caracteres. */
-  rfc: string;
+  /**
+   * RFC normalizado (mayúsculas, sin espacios), 12-13 caracteres; null para
+   * filas de SANCIONES_INT que solo traen nombre (Inc 12). Para las fuentes
+   * SAT el parser sigue descartando toda fila sin RFC válido (nunca null).
+   */
+  rfc: string | null;
   /** Razón social / nombre del contribuyente, si la columna existe. */
   razonSocial?: string;
   /** Texto de la columna "situación" (Presunto/Definitivo/etc.), si existe. */
@@ -178,6 +189,25 @@ function normalizarEncabezado(texto: string): string {
 }
 
 /**
+ * Normaliza un NOMBRE/raz\u00f3n social para matching heur\u00edstico (Inc 12):
+ * may\u00fasculas, sin acentos (\u00d1 \u2192 N por la descomposici\u00f3n NFD, consistente en
+ * ambos lados de la comparaci\u00f3n), sin puntuaci\u00f3n (todo lo que no sea letra,
+ * d\u00edgito o "&" se vuelve espacio) y espacios colapsados.
+ *
+ * El match por nombre es HEUR\u00cdSTICO: quien lo use debe producir ALERTA con
+ * revisi\u00f3n humana, nunca una inhabilitaci\u00f3n autom\u00e1tica (C9).
+ */
+export function normalizarNombre(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9&]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * Parte UNA línea CSV en campos, manejando comillas dobles y comas embebidas
  * básicas: `"a, b"` → `a, b`; `""` dentro de campo entrecomillado → `"`.
  * No soporta saltos de línea dentro de campos (ver límites arriba).
@@ -232,30 +262,56 @@ function* lineasDe(texto: string): Generator<string, void, undefined> {
 
 /** Índices de columnas detectados en el encabezado. */
 interface IndicesColumnas {
-  rfc: number;
+  /** Índice de la columna RFC, o null si el listado no la trae (SANCIONES_INT). */
+  rfc: number | null;
   razonSocial: number | null;
   situacion: number | null;
 }
 
-/** Detecta los índices de columna a partir de los campos del encabezado. */
-function detectarColumnas(camposEncabezado: string[]): IndicesColumnas | null {
-  let rfc = -1;
+/**
+ * Detecta los índices de columna a partir de los campos del encabezado.
+ *
+ * - RFC: encabezado que contenga "RFC". Obligatoria para las fuentes SAT
+ *   (`exigirRfc` = true); opcional para SANCIONES_INT, cuyas listas
+ *   (OFAC/ONU/UE/UK) identifican por nombre.
+ * - Nombre/razón social: "RAZON" | "NOMBRE" | "NAME" | "ENTITY" (Inc 12: las
+ *   listas internacionales usan NAME/ENTITY).
+ * - Situación: "SITUACI" (o "PROGRAM"/"SANCTION" como equivalente en listas
+ *   internacionales, si existe; se conserva como texto libre).
+ *
+ * Devuelve null si no se detecta ninguna columna utilizable (con `exigirRfc`,
+ * si falta RFC; sin él, si faltan tanto RFC como nombre).
+ */
+function detectarColumnas(
+  camposEncabezado: string[],
+  exigirRfc: boolean,
+): IndicesColumnas | null {
+  let rfc: number | null = null;
   let razonSocial: number | null = null;
   let situacion: number | null = null;
   for (let i = 0; i < camposEncabezado.length; i++) {
     const nombre = normalizarEncabezado(camposEncabezado[i]);
-    if (rfc === -1 && nombre.includes("RFC")) {
+    if (rfc === null && nombre.includes("RFC")) {
       rfc = i;
     } else if (
       razonSocial === null &&
-      (nombre.includes("RAZON") || nombre.includes("NOMBRE"))
+      (nombre.includes("RAZON") ||
+        nombre.includes("NOMBRE") ||
+        nombre.includes("NAME") ||
+        nombre.includes("ENTITY"))
     ) {
       razonSocial = i;
-    } else if (situacion === null && nombre.includes("SITUACI")) {
+    } else if (
+      situacion === null &&
+      (nombre.includes("SITUACI") ||
+        nombre.includes("PROGRAM") ||
+        nombre.includes("SANCTION"))
+    ) {
       situacion = i;
     }
   }
-  if (rfc === -1) return null;
+  if (exigirRfc && rfc === null) return null;
+  if (rfc === null && razonSocial === null) return null;
   return { rfc, razonSocial, situacion };
 }
 
@@ -278,14 +334,18 @@ function campoOpcional(campos: string[], indice: number | null): string | undefi
  * 4. Cada fila posterior se parte con el parser de comillas; se descartan
  *    las filas cuyo campo RFC no cumpla RFC_REGEX (12-13 alfanuméricos).
  *
- * El parámetro `fuente` se acepta para trazabilidad/extensiones por fuente
- * (hoy todas las fuentes comparten heurística de columnas).
+ * EXTENSIÓN Inc 12 — fuente SANCIONES_INT (listas internacionales OFAC/ONU/
+ * UE/UK por ingesta manual): esas listas identifican por NOMBRE, así que el
+ * RFC es TOLERADO ausente: el encabezado puede no traer columna RFC (se
+ * detecta el nombre también por NAME/ENTITY) y las filas con solo nombre se
+ * aceptan con `rfc: null`. Para las fuentes SAT el comportamiento es idéntico
+ * al del Incremento 10: toda fila sin RFC válido se descarta.
  */
 export function parsearCsvListado(
   texto: string,
-  fuente: FuenteListadoSat,
+  fuente: FuenteCsvListado,
 ): EntradaParseada[] {
-  void fuente; // heurística común hoy; parámetro conservado por contrato.
+  const toleraRfcAusente = fuente === "SANCIONES_INT";
   const entradas: EntradaParseada[] = [];
   let columnas: IndicesColumnas | null = null;
 
@@ -293,20 +353,42 @@ export function parsearCsvListado(
     if (linea.trim().length === 0) continue;
 
     if (columnas === null) {
-      // Fase de preámbulo: buscar la línea de encabezado que contenga "RFC".
-      if (!normalizarEncabezado(linea).includes("RFC")) continue;
-      columnas = detectarColumnas(partirLineaCsv(linea));
+      // Fase de preámbulo: buscar la línea de encabezado. Para fuentes SAT
+      // debe contener "RFC"; para SANCIONES_INT basta con una columna de
+      // nombre (NAME/ENTITY/NOMBRE/RAZON) o de RFC.
+      const encabezado = normalizarEncabezado(linea);
+      const pareceEncabezado = toleraRfcAusente
+        ? encabezado.includes("RFC") ||
+          encabezado.includes("NAME") ||
+          encabezado.includes("ENTITY") ||
+          encabezado.includes("NOMBRE") ||
+          encabezado.includes("RAZON")
+        : encabezado.includes("RFC");
+      if (!pareceEncabezado) continue;
+      columnas = detectarColumnas(partirLineaCsv(linea), !toleraRfcAusente);
       continue; // el encabezado mismo no es una fila de datos.
     }
 
     const campos = partirLineaCsv(linea);
-    if (columnas.rfc >= campos.length) continue;
-    const rfc = campos[columnas.rfc].trim().toUpperCase();
-    if (!RFC_REGEX.test(rfc)) continue; // subtotales, notas, filas rotas.
+
+    // RFC de la fila (si hay columna y el valor cumple el formato).
+    let rfc: string | null = null;
+    if (columnas.rfc !== null && columnas.rfc < campos.length) {
+      const crudo = campos[columnas.rfc].trim().toUpperCase();
+      if (RFC_REGEX.test(crudo)) rfc = crudo;
+    }
+
+    const razonSocial = campoOpcional(campos, columnas.razonSocial);
+
+    if (rfc === null) {
+      // Sin RFC válido: las fuentes SAT descartan la fila (subtotales, notas,
+      // filas rotas); SANCIONES_INT la acepta si al menos trae nombre.
+      if (!toleraRfcAusente || razonSocial === undefined) continue;
+    }
 
     entradas.push({
       rfc,
-      razonSocial: campoOpcional(campos, columnas.razonSocial),
+      razonSocial,
       situacion: campoOpcional(campos, columnas.situacion),
     });
   }

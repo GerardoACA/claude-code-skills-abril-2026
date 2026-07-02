@@ -36,7 +36,9 @@ type FuenteVerificacion =
   | "ART_69B_BIS"
   | "ART_49BIS"
   | "OPINION_32D"
-  | "CSD_17H";
+  | "CSD_17H"
+  // [Agente SERVICIO-12, Inc 12] sanciones internacionales (OFAC/ONU/UE/UK).
+  | "SANCIONES_INT";
 
 type ResultadoVerificacion =
   | "AL_CORRIENTE"
@@ -65,6 +67,9 @@ const FUENTES: { fuente: FuenteVerificacion; etiqueta: string }[] = [
   { fuente: "ART_49BIS", etiqueta: "Art. 49 Bis CFF (supuesto que inhabilita)" },
   { fuente: "OPINION_32D", etiqueta: "Opinion 32-D (cumplimiento de obligaciones)" },
   { fuente: "CSD_17H", etiqueta: "CSD 17-H (sello digital)" },
+  // [Agente SERVICIO-12, Inc 12] nueva fuente: ingesta manual en /admin/listados;
+  // el match por NOMBRE es heuristico => siempre ALERTA con revision humana (C9).
+  { fuente: "SANCIONES_INT", etiqueta: "Sanciones internacionales (OFAC/SDN, ONU, UE, UK)" },
 ];
 
 // Fuentes que se sincronizan como LISTADO del SAT (Incremento 10). Las tablas

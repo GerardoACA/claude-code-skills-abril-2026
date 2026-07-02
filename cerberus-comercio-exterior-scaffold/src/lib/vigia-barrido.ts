@@ -172,7 +172,7 @@ async function registrarAlertaVigia(
 async function barrerCliente(
   tx: Prisma.TransactionClient,
   tenantId: string,
-  cliente: { id: string; rfc: string },
+  cliente: { id: string; rfc: string; razonSocial: string },
 ): Promise<DetalleAlerta[]> {
   // 1) Baseline: resultado previo más reciente por fuente.
   const previos = await previosPorFuente(tx, cliente.id);
@@ -180,6 +180,9 @@ async function barrerCliente(
   // 2) Verificación fresca contra los listados del SAT (Incremento 10).
   const evaluaciones: ResultadoFuente[] = await verificarCumplimiento(tx, {
     rfc: cliente.rfc,
+    // razonSocial: alimenta el match heurístico por nombre de SANCIONES_INT
+    // (Inc 12); su resultado es SIEMPRE ALERTA con revisión humana (C9).
+    razonSocial: cliente.razonSocial,
   });
 
   // 3) Persistir UN registro por fuente (igual que el route de cumplimiento) y
@@ -262,7 +265,7 @@ export async function barridoVigia(prisma: PrismaClient): Promise<ResumenBarrido
         tenant.id,
         async (tx): Promise<ResumenTenant> => {
           const clientes = await tx.cliente.findMany({
-            select: { id: true, rfc: true },
+            select: { id: true, rfc: true, razonSocial: true },
             orderBy: { creadoEn: "asc" },
           });
 

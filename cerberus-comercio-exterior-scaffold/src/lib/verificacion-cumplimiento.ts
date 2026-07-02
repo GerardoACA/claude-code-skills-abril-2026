@@ -25,6 +25,15 @@
 //   - OPINION_32D y CSD_17H permanecen NO_DISPONIBLE (requieren e.firma del
 //     contribuyente; integración posterior), igual que hoy.
 //
+//   - SANCIONES_INT (Incremento 12): listas de sanciones internacionales
+//     (OFAC/SDN, ONU, UE, UK…) por INGESTA MANUAL. Se consulta la ÚLTIMA
+//     importación de la fuente: (i) si la entrada trae RFC y coincide EXACTO
+//     → mapeo normal de `situacion`; (ii) match HEURÍSTICO por nombre
+//     normalizado (normalizarNombre del cliente contenido en/igual al de la
+//     entrada) → SIEMPRE ALERTA con nota de revisión humana (C9 reforzado:
+//     nunca inhabilitación automática por nombre). Sin importación →
+//     NO_DISPONIBLE con "ingesta manual disponible en Administración".
+//
 // Principio rector C9: el sistema ALERTA y registra con snapshot fechado;
 // NUNCA bloquea. Un resultado adverso (INHABILITADO_*, ALERTA) NO impide
 // operar; solo se marca y registra para que el responsable (humano) decida.
@@ -32,6 +41,7 @@
 
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { sha256 } from "@/lib/probatoria/hash";
+import { normalizarNombre } from "@/lib/sat-listados";
 
 /**
  * Fuentes/supuestos verificados. Los valores coinciden EXACTAMENTE con el enum
@@ -44,6 +54,7 @@ export const FUENTES_VERIFICACION = [
   "ART_49BIS",
   "OPINION_32D",
   "CSD_17H",
+  "SANCIONES_INT",
 ] as const;
 
 /** Unión de literales de fuente (equivalente al enum Prisma `FuenteVerificacion`). */
@@ -68,6 +79,12 @@ export type ResultadoVerificacion = (typeof RESULTADOS_VERIFICACION)[number];
 export interface EntradaVerificacion {
   /** RFC del cliente/proveedor a buscar en los listados. */
   rfc: string;
+  /**
+   * Razón social del cliente/proveedor (opcional; Inc 12). Se usa SOLO para
+   * el match heurístico por nombre contra SANCIONES_INT: si se omite, esa
+   * fuente se resuelve únicamente por RFC exacto.
+   */
+  razonSocial?: string;
 }
 
 /** Resultado de la verificación para UNA fuente. */
@@ -115,6 +132,7 @@ const ETIQUETA_FUENTE: Readonly<Record<FuenteVerificacion, string>> = {
     "Art. 49 Bis CFF (verificación documental en curso por abogado; supuesto de la reforma CFF 2026)",
   OPINION_32D: "art. 32-D CFF (opinión de cumplimiento)",
   CSD_17H: "art. 17-H / 17-H Bis CFF (sello digital)",
+  SANCIONES_INT: "sanciones internacionales (OFAC/SDN, ONU, UE, UK…)",
 };
 
 // -----------------------------------------------------------------------------
@@ -254,6 +272,145 @@ async function verificarContraListado(
 }
 
 // -----------------------------------------------------------------------------
+// SANCIONES_INT (Inc 12) — listas internacionales (OFAC/SDN, ONU, UE, UK…)
+// por ingesta manual. Identifican por NOMBRE ⇒ el match por nombre es
+// HEURÍSTICO y produce SIEMPRE ALERTA con revisión humana (C9 reforzado:
+// nunca inhabilitación automática por nombre). El match por RFC exacto (si
+// la lista lo trae) sí usa el mapeo normal de situación.
+// -----------------------------------------------------------------------------
+
+/** Máximo de candidatas traídas para el filtro en memoria del match por nombre. */
+const MAX_CANDIDATAS_NOMBRE = 500;
+
+async function verificarSancionesInternacionales(
+  db: DbVerificacion,
+  rfc: string,
+  razonSocial: string | undefined,
+  consultadoEn: string,
+): Promise<ResultadoFuente> {
+  const fuente = "SANCIONES_INT" as const;
+
+  // 1) Última importación de la fuente (ingesta manual o sync futura).
+  const importacion = await db.importacionListadoSat.findFirst({
+    where: { fuente },
+    orderBy: { importadoEn: "desc" },
+    select: {
+      id: true,
+      sha256Archivo: true,
+      importadoEn: true,
+      filas: true,
+      emisor: true,
+    },
+  });
+
+  if (!importacion) {
+    const resultado: ResultadoVerificacion = "NO_DISPONIBLE";
+    return {
+      fuente,
+      resultado,
+      detalle:
+        `${ETIQUETA_FUENTE[fuente]}: sin importación de lista disponible; ` +
+        `ingesta manual disponible en Administración (/admin/listados) para ` +
+        `poder verificar al cliente (RFC ${rfc}).`,
+      snapshotSha256: snapshotSinArchivo(rfc, fuente, resultado, consultadoEn),
+      consultadoEn,
+    };
+  }
+
+  const fechaImportacion = importacion.importadoEn.toISOString();
+  const emisorTexto =
+    importacion.emisor && importacion.emisor.trim() !== ""
+      ? ` Emisor de la lista: ${importacion.emisor.trim()}.`
+      : "";
+
+  // 2-i) Match por RFC EXACTO (solo si la lista trae RFC): mapeo normal de
+  // situación (puede llegar a INHABILITADO_*; C9: sigue siendo alerta, no bloqueo).
+  const porRfc = await db.listadoSatEntrada.findFirst({
+    where: { importacionId: importacion.id, rfc },
+    select: { razonSocial: true, situacion: true },
+  });
+
+  if (porRfc) {
+    const resultado = mapearSituacion(porRfc.situacion);
+    const nombrePublicado =
+      porRfc.razonSocial && porRfc.razonSocial.trim() !== ""
+        ? ` Nombre publicado: "${porRfc.razonSocial.trim()}".`
+        : "";
+    const situacionTexto =
+      porRfc.situacion && porRfc.situacion.trim() !== ""
+        ? `situación publicada: "${porRfc.situacion.trim()}"`
+        : "sin texto de situación en la lista";
+    return {
+      fuente,
+      resultado,
+      detalle:
+        `${ETIQUETA_FUENTE[fuente]}: RFC ${rfc} HALLADO (match exacto por RFC) ` +
+        `en la lista importada el ${fechaImportacion}; ${situacionTexto} → ` +
+        `${resultado}.${nombrePublicado}${emisorTexto}`,
+      snapshotSha256: importacion.sha256Archivo,
+      consultadoEn,
+    };
+  }
+
+  // 2-ii) Match HEURÍSTICO por nombre normalizado: el nombre del cliente debe
+  // quedar CONTENIDO en (o ser igual a) el nombre normalizado de la entrada.
+  // Se acota la consulta con `contains` case-insensitive sobre razonSocial
+  // (primera palabra del nombre normalizado) y se filtra en memoria con
+  // normalizarNombre. SIEMPRE ALERTA: requiere revisión humana (C9).
+  if (razonSocial !== undefined) {
+    const nombreCliente = normalizarNombre(razonSocial);
+    if (nombreCliente !== "") {
+      const primeraPalabra = nombreCliente.split(" ")[0];
+      const candidatas = await db.listadoSatEntrada.findMany({
+        where: {
+          importacionId: importacion.id,
+          razonSocial: { contains: primeraPalabra, mode: "insensitive" },
+        },
+        select: { razonSocial: true, situacion: true },
+        take: MAX_CANDIDATAS_NOMBRE,
+      });
+
+      for (const candidata of candidatas) {
+        if (!candidata.razonSocial) continue;
+        const nombreEntrada = normalizarNombre(candidata.razonSocial);
+        if (
+          nombreEntrada === nombreCliente ||
+          nombreEntrada.includes(nombreCliente)
+        ) {
+          return {
+            fuente,
+            resultado: "ALERTA",
+            detalle:
+              `${ETIQUETA_FUENTE[fuente]}: coincidencia por NOMBRE (heurística); ` +
+              `requiere revisión humana. Cliente "${razonSocial.trim()}" (RFC ${rfc}) ` +
+              `coincide con la entrada "${candidata.razonSocial.trim()}" de la ` +
+              `lista importada el ${fechaImportacion}.${emisorTexto}`,
+            snapshotSha256: importacion.sha256Archivo,
+            consultadoEn,
+          };
+        }
+      }
+    }
+  }
+
+  // 3) Sin match por RFC ni por nombre → al corriente respecto de esta fuente.
+  const nombreConsultado =
+    razonSocial !== undefined && razonSocial.trim() !== ""
+      ? ` ni el nombre "${razonSocial.trim()}"`
+      : " (sin razón social para match por nombre)";
+  return {
+    fuente,
+    resultado: "AL_CORRIENTE",
+    detalle:
+      `${ETIQUETA_FUENTE[fuente]}: el RFC ${rfc}${nombreConsultado} NO aparece ` +
+      `en la lista importada el ${fechaImportacion} (${importacion.filas} filas).` +
+      emisorTexto,
+    snapshotSha256: importacion.sha256Archivo,
+    consultadoEn,
+  };
+}
+
+// -----------------------------------------------------------------------------
 // Fuentes aún sin integración (requieren e.firma del contribuyente).
 // -----------------------------------------------------------------------------
 function resultadoNoIntegrado(
@@ -280,14 +437,17 @@ function resultadoNoIntegrado(
  *
  * ART_69 / ART_69B / ART_69B_BIS / ART_49BIS se resuelven contra la ÚLTIMA
  * importación de los listados públicos del SAT (tablas globales sin tenant_id,
- * sincronizadas vía /api/admin/listados). OPINION_32D y CSD_17H siguen
- * NO_DISPONIBLE hasta su integración (e.firma).
+ * sincronizadas vía /api/admin/listados). SANCIONES_INT (Inc 12) se resuelve
+ * contra la última lista internacional ingresada manualmente: RFC exacto →
+ * mapeo normal; nombre normalizado → SIEMPRE ALERTA con revisión humana.
+ * OPINION_32D y CSD_17H siguen NO_DISPONIBLE hasta su integración (e.firma).
  *
  * C9: el resultado NUNCA bloquea; solo marca y registra para que el
  * responsable decida.
  *
  * @param db - `PrismaClient` o `Prisma.TransactionClient` con acceso a los modelos globales.
- * @param entrada - `{ rfc }` del cliente/proveedor.
+ * @param entrada - `{ rfc, razonSocial? }` del cliente/proveedor (la razón
+ *   social solo alimenta el match heurístico por nombre de SANCIONES_INT).
  * @param ahora - Momento de consulta (inyectable para pruebas). Por defecto `new Date()`.
  */
 export async function verificarCumplimiento(
@@ -298,9 +458,18 @@ export async function verificarCumplimiento(
   const rfc = entrada.rfc.trim().toUpperCase();
   const consultadoEn = ahora.toISOString();
 
+  const razonSocial =
+    typeof entrada.razonSocial === "string" && entrada.razonSocial.trim() !== ""
+      ? entrada.razonSocial.trim()
+      : undefined;
+
   const resultados: ResultadoFuente[] = [];
   for (const fuente of FUENTES_VERIFICACION) {
-    if (esFuenteListado(fuente)) {
+    if (fuente === "SANCIONES_INT") {
+      resultados.push(
+        await verificarSancionesInternacionales(db, rfc, razonSocial, consultadoEn),
+      );
+    } else if (esFuenteListado(fuente)) {
       resultados.push(await verificarContraListado(db, fuente, rfc, consultadoEn));
     } else {
       resultados.push(resultadoNoIntegrado(fuente, rfc, consultadoEn));

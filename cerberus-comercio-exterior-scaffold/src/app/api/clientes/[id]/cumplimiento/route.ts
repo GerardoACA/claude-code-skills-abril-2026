@@ -105,7 +105,9 @@ export async function POST(_req: Request, { params }: Params) {
       // 1) Cargar el cliente (RLS lo limita al tenant del token).
       const cliente = await tx.cliente.findFirst({
         where: { id: clienteId },
-        select: { id: true, rfc: true },
+        // razonSocial: solo alimenta el match heurístico por nombre de
+        // SANCIONES_INT (Inc 12); el resto de fuentes verifica por RFC.
+        select: { id: true, rfc: true, razonSocial: true },
       });
       if (!cliente) {
         return { tipo: "no-cliente" };
@@ -119,6 +121,7 @@ export async function POST(_req: Request, { params }: Params) {
       //    La escritura de VerificacionCumplimiento (abajo) sigue tenant-scoped.
       const evaluaciones: ResultadoFuente[] = await verificarCumplimiento(tx, {
         rfc: cliente.rfc,
+        razonSocial: cliente.razonSocial,
       });
 
       // 3) Crear UN registro VerificacionCumplimiento por cada fuente evaluada.
