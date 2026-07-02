@@ -165,6 +165,7 @@ model Tenant {
   comprobantes              ComprobanteCfdi[]
   overrides                 OverrideAlerta[]
   efirmasEntregadas         EfirmaEntregada[]
+  opinionesCumplimiento     OpinionCumplimientoIngestada[]
 
   @@map("tenant")
 }
@@ -240,6 +241,7 @@ model Cliente {
   verificaciones       VerificacionCumplimiento[]
   overrides            OverrideAlerta[]
   efirmasEntregadas    EfirmaEntregada[]
+  opinionesCumplimiento OpinionCumplimientoIngestada[]
 
   @@unique([tenantId, rfc])
   @@index([tenantId, estadoCsd])
@@ -884,4 +886,81 @@ model EfirmaEntregada {
 
   @@index([tenantId, clienteId])
   @@map("efirma_entregada")
+}
+
+// ============================================================================
+// Opinión de cumplimiento (32-D) INGESTADA + validación de autenticidad
+// (Incremento 22) — los clientes/proveedores normalmente NO entregan su e.firma
+// (.cer), pero SÍ pueden entregar la OPINIÓN DE CUMPLIMIENTO IMPRESA/PDF que el
+// SAT les emite. Se ingiere el texto de esa opinión, un validador automático
+// analiza su AUTENTICIDAD (marcadores del SAT, folio/acuse, RFC, sentido,
+// consistencia) para detectar documentos FALSOS, y —cuando se conecte— se coteja
+// EN VIVO ante el SAT por folio (conector VerificadorOpinionSat, NoOp hoy).
+//
+// C9: un veredicto SOSPECHOSA/NO_AUTENTICA es una ALERTA para revisión humana,
+// nunca un bloqueo. El cotejo en vivo por folio es lo que CONFIRMA de forma
+// definitiva; el análisis por IA es el primer filtro contra falsificaciones.
+// ============================================================================
+
+/// Veredicto del validador automático de autenticidad de la opinión ingestada.
+enum ResultadoValidacionOpinion {
+  AUTENTICA       // marcadores del SAT + folio + RFC coincide + consistente
+  SOSPECHOSA      // faltan elementos o hay inconsistencias: revisión humana
+  NO_AUTENTICA    // sin marcadores del SAT / RFC no coincide / probable falsificación
+  NO_VERIFICABLE  // no se pudo analizar el texto entregado
+}
+
+/// Estado del cotejo EN VIVO ante el SAT (conector VerificadorOpinionSat).
+enum EstadoCotejoSat {
+  NO_INTENTADO    // aún no se cotejó (o conector no configurado)
+  CONFIRMADA      // el SAT confirma el folio/sentido
+  DISCREPANCIA    // el SAT responde algo distinto a lo ingestado
+  NO_DISPONIBLE   // conector no configurado / SAT no disponible
+}
+
+/// Sentido de la opinión de cumplimiento (art. 32-D CFF).
+enum SentidoOpinion {
+  POSITIVA
+  NEGATIVA
+  SIN_OBLIGACIONES
+  NO_INSCRITO
+  INDETERMINADO
+}
+
+/// Opinión de cumplimiento (32-D) entregada por el cliente e ingestada para
+/// validar su autenticidad. Tenant-scoped.
+model OpinionCumplimientoIngestada {
+  id             String   @id @default(cuid())
+  tenantId       String   @map("tenant_id")
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clienteId      String   @map("cliente_id")
+  cliente        Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  /// Nombre del archivo entregado (referencia legible, p. ej. "opinion.pdf").
+  nombreArchivo  String?  @map("nombre_archivo")
+  /// SHA-256 (hex, 64 chars) del texto ingestado — huella probatoria.
+  sha256         String   @db.Char(64)
+  /// Texto íntegro ingestado (fuente del hash; conservar para exporte probatorio).
+  textoOriginal  String   @map("texto_original")
+  /// RFC extraído del documento (si se pudo determinar).
+  rfcDocumento   String?  @map("rfc_documento")
+  /// Folio / número de acuse extraído (clave para el cotejo en vivo).
+  folio          String?
+  /// Sentido detectado en el documento.
+  sentido        SentidoOpinion @default(INDETERMINADO)
+  /// Fecha de emisión detectada en el documento.
+  fechaEmision   DateTime? @map("fecha_emision")
+  /// Veredicto de la validación automática de autenticidad.
+  resultado      ResultadoValidacionOpinion
+  /// Observaciones/checks del validador (JSON serializado).
+  observaciones  String
+  /// Estado del cotejo EN VIVO ante el SAT (conector).
+  cotejoEnVivo   EstadoCotejoSat @default(NO_INTENTADO) @map("cotejo_en_vivo")
+  /// Detalle legible del cotejo en vivo (respuesta del conector).
+  cotejoDetalle  String?  @map("cotejo_detalle")
+  /// Actor (del JWT) que registró la ingesta.
+  actor          String
+  creadoEn       DateTime @default(now()) @map("creado_en")
+
+  @@index([tenantId, clienteId])
+  @@map("opinion_cumplimiento_ingestada")
 }
