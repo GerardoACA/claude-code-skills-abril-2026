@@ -20,6 +20,29 @@ import { CerrarSesion } from "@/components/CerrarSesion";
 // Forma de los datos que el tablero renderiza (solo los campos mostrados).
 type ClienteFila = { id: string; rfc: string; razonSocial: string };
 type OperacionFila = { id: string; referencia: string; estado: string };
+// [Agente VIGIA-BARRIDO, Inc 11] alerta del vigía (evento de bitácora).
+type AlertaVigiaFila = { id: string; creadoEn: Date; payloadRef: string | null };
+
+// [Agente VIGIA-BARRIDO, Inc 11] payloadRef legible: el vigía guarda un JSON
+// con { clienteId, rfc, fuente, de, a }; si se puede parsear, se muestra como
+// texto humano; si no, se muestra el payloadRef crudo (o un guion).
+function payloadVigiaLegible(payloadRef: string | null): string {
+  if (payloadRef === null || payloadRef.trim() === "") return "—";
+  try {
+    const parsed: unknown = JSON.parse(payloadRef);
+    if (parsed !== null && typeof parsed === "object") {
+      const p = parsed as Record<string, unknown>;
+      const rfc = typeof p.rfc === "string" ? p.rfc : "¿RFC?";
+      const fuente = typeof p.fuente === "string" ? p.fuente : "¿fuente?";
+      const de = typeof p.de === "string" ? p.de : "¿?";
+      const a = typeof p.a === "string" ? p.a : "¿?";
+      return `RFC ${rfc} — ${fuente}: ${de} → ${a}`;
+    }
+  } catch {
+    // payloadRef no es JSON: se muestra tal cual (sigue siendo legible).
+  }
+  return payloadRef;
+}
 
 // El tablero depende de la sesion/DB: no debe pre-renderizarse en build.
 export const dynamic = "force-dynamic";
@@ -32,9 +55,15 @@ export default async function DashboardPage() {
   }
 
   // 2) Lectura tenant-scoped: RLS filtra por el tenant del token verificado.
-  const { clientes, operaciones } = await withTenantFromSession(
+  const { clientes, operaciones, alertasVigia } = await withTenantFromSession(
     session,
-    async (tx): Promise<{ clientes: ClienteFila[]; operaciones: OperacionFila[] }> => {
+    async (
+      tx
+    ): Promise<{
+      clientes: ClienteFila[];
+      operaciones: OperacionFila[];
+      alertasVigia: AlertaVigiaFila[];
+    }> => {
       const clientes = await tx.cliente.findMany({
         select: { id: true, rfc: true, razonSocial: true },
         orderBy: { razonSocial: "asc" },
@@ -43,7 +72,15 @@ export default async function DashboardPage() {
         select: { id: true, referencia: true, estado: true },
         orderBy: { creadoEn: "desc" },
       });
-      return { clientes, operaciones };
+      // [Agente VIGIA-BARRIDO, Inc 11] últimos 10 eventos "VIGIA_ALERTA" del
+      // tenant (la RLS ya filtra por app.tenant_id; alerta, NUNCA bloqueo).
+      const alertasVigia = await tx.bitacoraAuditoria.findMany({
+        where: { accion: "VIGIA_ALERTA" },
+        select: { id: true, creadoEn: true, payloadRef: true },
+        orderBy: { creadoEn: "desc" },
+        take: 10,
+      });
+      return { clientes, operaciones, alertasVigia };
     }
   );
 
@@ -170,6 +207,39 @@ export default async function DashboardPage() {
                     {o.referencia}
                   </td>
                   <td style={{ padding: "0.5rem 0.75rem" }}>{o.estado}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      {/* [Agente VIGIA-BARRIDO, Inc 11] Alertas del barrido diario del vigía:
+          eventos "VIGIA_ALERTA" de la bitácora del tenant (últimos 10). Es
+          ALERTA, NO bloqueo (C9): solo informa; el responsable decide. */}
+      <section style={{ marginTop: "2.5rem" }}>
+        <h2 style={{ fontSize: "1.25rem" }}>
+          Alertas de cumplimiento (vigía) ({alertasVigia.length})
+        </h2>
+        {alertasVigia.length === 0 ? (
+          <p style={{ color: "#94a3b8" }}>Sin alertas del vigía.</p>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "0.5rem" }}>
+            <thead>
+              <tr style={{ textAlign: "left", borderBottom: "2px solid #e2e8f0" }}>
+                <th style={{ padding: "0.5rem 0.75rem" }}>Fecha</th>
+                <th style={{ padding: "0.5rem 0.75rem" }}>Alerta</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alertasVigia.map((a: AlertaVigiaFila) => (
+                <tr key={a.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                  <td style={{ padding: "0.5rem 0.75rem", fontFamily: "monospace", whiteSpace: "nowrap" }}>
+                    {a.creadoEn.toISOString()}
+                  </td>
+                  <td style={{ padding: "0.5rem 0.75rem" }}>
+                    {payloadVigiaLegible(a.payloadRef)}
+                  </td>
                 </tr>
               ))}
             </tbody>

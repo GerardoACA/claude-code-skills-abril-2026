@@ -1,14 +1,13 @@
 // CERBERUS COMERCIO EXTERIOR — API admin: sincronización de listados SAT. NO es SIDF.
 // =============================================================================
 // Archivo:  src/app/api/admin/listados/route.ts
-// Propósito (Incremento 10):
-//   POST — SOLO rol ADMIN (403 si no): por cada FuenteVerificacion de listado
-//          (ART_69, ART_69B, ART_69B_BIS, ART_49BIS) con URL configurada en
-//          FUENTES_LISTADOS (src/lib/sat-listados.ts, overridable por env):
-//          descarga el CSV público del SAT, lo parsea, crea UNA
-//          ImportacionListadoSat (snapshot sellado: sha256 del archivo + fecha)
-//          y sus ListadoSatEntrada con createMany POR LOTES de 1000 (memoria y
-//          tiempo acotados en Vercel). Responde un resumen por fuente.
+// Propósito (Incremento 10, refactor en Incremento 11):
+//   POST — SOLO rol ADMIN (403 si no): sincroniza los listados públicos del
+//          SAT vía la lib COMPARTIDA src/lib/sincronizar-listados.ts (por
+//          fuente con URL: descargar→parsear→ImportacionListadoSat+entradas
+//          createMany por lotes de 1000; una fuente que falla no aborta las
+//          demás). Responde un resumen por fuente. La MISMA lib la usa el
+//          cron diario /api/cron/vigia (Incremento 11).
 //   GET  — Última importación por fuente (fecha, filas, sha256) para la UI.
 //
 // DECISIÓN DE DISEÑO — TABLAS GLOBALES SIN TENANT:
@@ -28,39 +27,14 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import {
-  FUENTES_LISTADOS,
-  descargarListado,
-  parsearCsvListado,
-} from "@/lib/sat-listados";
+  FUENTES_SINCRONIZABLES,
+  sincronizarListados,
+  type FuenteListado,
+} from "@/lib/sincronizar-listados";
 
 export const runtime = "nodejs";
 // Descargar + parsear + insertar millones de filas puede tardar: tope Vercel.
 export const maxDuration = 300;
-
-// -----------------------------------------------------------------------------
-// Fuentes sincronizables (las 4 de listado; OPINION_32D/CSD_17H no son listados).
-// Literales EXACTOS del enum Prisma FuenteVerificacion.
-// -----------------------------------------------------------------------------
-const FUENTES_SINCRONIZABLES = [
-  "ART_69",
-  "ART_69B",
-  "ART_69B_BIS",
-  "ART_49BIS",
-] as const;
-
-type FuenteListado = (typeof FUENTES_SINCRONIZABLES)[number];
-
-/** Tamaño de lote para createMany (acota memoria/roundtrips). */
-const TAMANO_LOTE = 1000;
-
-// Resumen por fuente que devuelve el POST.
-type ResumenFuente = {
-  fuente: FuenteListado;
-  estado: "importado" | "omitido" | "error";
-  filas: number | null;
-  sha256: string | null;
-  detalle: string;
-};
 
 // Última importación por fuente que devuelve el GET.
 type UltimaImportacion = {
@@ -95,74 +69,9 @@ export async function POST(): Promise<NextResponse> {
     );
   }
 
-  const resumen: ResumenFuente[] = [];
-
-  // Secuencial a propósito: acota memoria (un CSV a la vez) y evita saturar
-  // el pool de conexiones. Un fallo en una fuente NO aborta las demás.
-  for (const fuente of FUENTES_SINCRONIZABLES) {
-    const config = FUENTES_LISTADOS[fuente];
-    const url: string | null = config?.url ?? null;
-
-    if (!url) {
-      resumen.push({
-        fuente,
-        estado: "omitido",
-        filas: null,
-        sha256: null,
-        detalle: `URL no configurada para ${fuente}; fuente omitida (quedará NO_DISPONIBLE en la verificación).`,
-      });
-      continue;
-    }
-
-    try {
-      // 1) Descargar el CSV (decodificación latin1 y sha256 del archivo la
-      //    resuelve src/lib/sat-listados.ts).
-      const { texto, sha256 } = await descargarListado(url);
-
-      // 2) Parsear (salta preámbulo, detecta columnas RFC/razón social/situación).
-      const entradas = parsearCsvListado(texto, fuente);
-
-      // 3) Crear la importación (snapshot sellado: sha256 del archivo + fecha).
-      const importacion = await prisma.importacionListadoSat.create({
-        data: {
-          fuente,
-          url,
-          sha256Archivo: sha256,
-          filas: entradas.length,
-        },
-        select: { id: true },
-      });
-
-      // 4) Insertar entradas por lotes de 1000 (createMany, sin objetos pesados).
-      for (let i = 0; i < entradas.length; i += TAMANO_LOTE) {
-        const lote = entradas.slice(i, i + TAMANO_LOTE).map((e) => ({
-          importacionId: importacion.id,
-          fuente,
-          rfc: e.rfc,
-          razonSocial: e.razonSocial ?? null,
-          situacion: e.situacion ?? null,
-        }));
-        await prisma.listadoSatEntrada.createMany({ data: lote });
-      }
-
-      resumen.push({
-        fuente,
-        estado: "importado",
-        filas: entradas.length,
-        sha256,
-        detalle: `Importadas ${entradas.length} filas desde ${url}.`,
-      });
-    } catch (err) {
-      const motivo = err instanceof Error ? err.message : "error desconocido";
-      resumen.push({
-        fuente,
-        estado: "error",
-        filas: null,
-        sha256: null,
-        detalle: `Falló la sincronización de ${fuente}: ${motivo}`,
-      });
-    }
-  }
+  // Lógica compartida (semántica idéntica a la del incremento 10): secuencial,
+  // por lotes de 1000, y una fuente que falla no aborta las demás.
+  const resumen = await sincronizarListados(prisma);
 
   const huboImportacion = resumen.some((r) => r.estado === "importado");
   return NextResponse.json(
