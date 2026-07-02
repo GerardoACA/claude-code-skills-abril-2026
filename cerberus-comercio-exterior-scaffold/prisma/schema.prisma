@@ -163,6 +163,7 @@ model Tenant {
   verificaciones            VerificacionCumplimiento[]
   pasos                     PasoDespacho[]
   comprobantes              ComprobanteCfdi[]
+  overrides                 OverrideAlerta[]
 
   @@map("tenant")
 }
@@ -236,6 +237,7 @@ model Cliente {
   operaciones          Operacion[]
   alertas69b           Alerta69b[]
   verificaciones       VerificacionCumplimiento[]
+  overrides            OverrideAlerta[]
 
   @@unique([tenantId, rfc])
   @@index([tenantId, estadoCsd])
