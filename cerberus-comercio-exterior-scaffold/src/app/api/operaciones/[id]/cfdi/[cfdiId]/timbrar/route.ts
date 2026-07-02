@@ -20,14 +20,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
 import { sha256 } from "@/lib/probatoria/hash";
-import { obtenerTimbrador } from "@/lib/timbrador-pac";
+import { obtenerTimbrador, type ResultadoTimbrado } from "@/lib/timbrador-pac";
 
 export const runtime = "nodejs";
-
-// Tipos derivados del conector del Agente MODELO-13 (formas EXACTAS del
-// blueprint: timbrar(input) => Promise<ResultadoTimbrado { ok, estado, uuid?, detalle }>).
-type Timbrador = ReturnType<typeof obtenerTimbrador>;
-type EntradaTimbrado = Parameters<Timbrador["timbrar"]>[0];
 
 /** Serialización canónica y estable (claves ordenadas) para sellar el evento. */
 function canonical(obj: Record<string, unknown>): string {
@@ -112,21 +107,23 @@ export async function POST(
     );
   }
 
-  // 2) Intento de timbrado vía el conector (NoOp hoy => { ok: false, estado:
-  //    "SIN_PAC", detalle: "Conector PAC no configurado..." }). El contrato de
-  //    entrada exacto lo fija el adaptador del PAC real del cliente; el NoOp lo
-  //    ignora, por eso la aserción documentada vía el tipo derivado.
-  const solicitud = {
-    cfdiId: comprobante.id,
-    operacionId: id,
-    emisorRfc: comprobante.emisorRfc,
-    receptorRfc: comprobante.receptorRfc,
-    payload: comprobante.payload,
-    sha256: comprobante.sha256,
-  };
-  const resultado = await obtenerTimbrador().timbrar(
-    solicitud as unknown as EntradaTimbrado,
-  );
+  // 2) Intento de timbrado vía el conector (EntradaTimbrado del Agente
+  //    MODELO-13). NoOp hoy => { ok: false, estado: "SIN_PAC", detalle:
+  //    "Conector PAC no configurado; el comprobante queda en BORRADOR sellado" }.
+  let resultado: ResultadoTimbrado;
+  try {
+    resultado = await obtenerTimbrador().timbrar({
+      payloadCanonico: comprobante.payload,
+      sha256: comprobante.sha256,
+      emisorRfc: comprobante.emisorRfc,
+      receptorRfc: comprobante.receptorRfc,
+    });
+  } catch {
+    return NextResponse.json(
+      { error: "El conector PAC falló al intentar el timbrado" },
+      { status: 502 },
+    );
+  }
 
   const detallePac: string = JSON.stringify(resultado);
   const timbrado: boolean = resultado.ok === true;

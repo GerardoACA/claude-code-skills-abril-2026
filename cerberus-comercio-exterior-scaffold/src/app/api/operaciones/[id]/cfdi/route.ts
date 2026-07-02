@@ -14,8 +14,8 @@
 // corre dentro de withTenantFromSession (transacción + SET LOCAL app.tenant_id).
 //
 // Coordinación Incremento 13: los tipos/funciones de src/lib/carta-porte.ts son
-// del Agente MODELO-13; aquí se consumen sus formas EXACTAS del blueprint vía
-// tipos derivados (Parameters<...>) para no acoplarse a nombres de tipos.
+// del Agente MODELO-13; aquí solo se consumen (CartaPorte31, ErrorValidacion,
+// validarCartaPorte, canonicalizarCartaPorte).
 // =============================================================================
 
 import { NextResponse } from "next/server";
@@ -24,16 +24,15 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
 import { sha256 } from "@/lib/probatoria/hash";
-import { validarCartaPorte, canonicalizarCartaPorte } from "@/lib/carta-porte";
+import {
+  validarCartaPorte,
+  canonicalizarCartaPorte,
+  type CartaPorte31,
+  type ComprobanteCartaPorte,
+  type ErrorValidacion,
+} from "@/lib/carta-porte";
 
 export const runtime = "nodejs";
-
-/** Forma de entrada que espera la lib del Agente MODELO-13 (derivada, no nombrada). */
-type CartaPorteEntrada = Parameters<typeof validarCartaPorte>[0];
-type CanonicalizarEntrada = Parameters<typeof canonicalizarCartaPorte>[0];
-
-/** Error de validación con la forma {campo, mensaje} que pinta el form. */
-type ErrorValidacion = { campo: string; mensaje: string };
 
 /** Serialización canónica y estable (claves ordenadas) para sellar el evento. */
 function canonical(obj: Record<string, unknown>): string {
@@ -139,12 +138,8 @@ export async function POST(
   }
   const datos = parseado.data;
 
-  // 2) Objeto COMPLETO del documento (CFDI + complemento Carta Porte 3.1) con
-  //    las formas del blueprint del Agente MODELO-13. La aserción vía tipos
-  //    derivados es el punto de coordinación entre agentes.
-  const documento = {
-    emisorRfc: datos.emisorRfc,
-    receptorRfc: datos.receptorRfc,
+  // 2) Complemento Carta Porte 3.1 con las formas del Agente MODELO-13.
+  const cartaPorte: CartaPorte31 = {
     origen: datos.origen,
     destino: datos.destino,
     autotransporte: datos.autotransporte,
@@ -154,9 +149,7 @@ export async function POST(
 
   // 3) Validaciones de negocio de la Carta Porte 3.1 (reporte §1). C9: alertan
   //    con lista de errores y NO se guarda el borrador si hay errores.
-  const errores: ErrorValidacion[] = validarCartaPorte(
-    documento as unknown as CartaPorteEntrada,
-  );
+  const errores: ErrorValidacion[] = validarCartaPorte(cartaPorte);
   if (errores.length > 0) {
     return NextResponse.json(
       { error: "Carta Porte 3.1 inválida: corrige los campos señalados", errores },
@@ -164,10 +157,16 @@ export async function POST(
     );
   }
 
-  // 4) Payload canónico + sello de integridad (SHA-256 hex, capa probatoria).
-  const payload: string = canonicalizarCartaPorte(
-    documento as unknown as CanonicalizarEntrada,
-  );
+  // 4) Objeto COMPLETO del comprobante (datos fiscales + complemento) => payload
+  //    canónico + sello de integridad (SHA-256 hex, capa probatoria).
+  const documento: ComprobanteCartaPorte = {
+    tipo: "TRASLADO",
+    complemento: "CARTA_PORTE_31",
+    emisorRfc: datos.emisorRfc,
+    receptorRfc: datos.receptorRfc,
+    cartaPorte,
+  };
+  const payload: string = canonicalizarCartaPorte(documento);
   const selloCfdi = sha256(payload);
 
   let resultado: Resultado;
