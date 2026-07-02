@@ -23,6 +23,8 @@ import { withTenantFromSession } from "@/lib/tenant-context";
 import { prisma } from "@/lib/prisma";
 import { BotonVerificarCumplimiento } from "@/components/BotonVerificarCumplimiento";
 import { SincronizarListados } from "@/components/SincronizarListados";
+// [Agente UI-15, Inc 15] override motivado de alertas (decision C11).
+import { OverrideForm, type FuenteAdversa } from "@/components/OverrideForm";
 
 // Depende de sesion/DB: no debe pre-renderizarse en build.
 export const dynamic = "force-dynamic";
@@ -46,6 +48,28 @@ type ResultadoVerificacion =
   | "ALERTA"
   | "INHABILITADO_PRESUNTO"
   | "INHABILITADO_DEFINITIVO";
+
+// [Agente UI-15, Inc 15] resultados adversos que habilitan registrar override
+// y filas de OverrideAlerta que se listan (decision C11).
+const RESULTADOS_ADVERSOS: ReadonlySet<ResultadoVerificacion> =
+  new Set<ResultadoVerificacion>([
+    "ALERTA",
+    "INHABILITADO_PRESUNTO",
+    "INHABILITADO_DEFINITIVO",
+  ]);
+
+type EstadoFirmaOverride = "SIN_FIRMA" | "FIRMADO";
+
+type OverrideFila = {
+  id: string;
+  fuente: FuenteVerificacion;
+  resultado: string;
+  motivo: string;
+  actor: string;
+  estadoFirma: EstadoFirmaOverride;
+  firmaDetalle: string | null;
+  creadoEn: Date;
+};
 
 // Formas de datos que la pagina renderiza (solo campos mostrados).
 type ClienteDatos = { id: string; rfc: string; razonSocial: string };
@@ -127,13 +151,17 @@ export default async function CumplimientoPage({ params }: PageProps) {
     session,
     async (
       tx,
-    ): Promise<{ cliente: ClienteDatos | null; verificaciones: VerificacionFila[] }> => {
+    ): Promise<{
+      cliente: ClienteDatos | null;
+      verificaciones: VerificacionFila[];
+      overrides: OverrideFila[];
+    }> => {
       const cliente = await tx.cliente.findFirst({
         where: { id: clienteId },
         select: { id: true, rfc: true, razonSocial: true },
       });
       if (!cliente) {
-        return { cliente: null, verificaciones: [] };
+        return { cliente: null, verificaciones: [], overrides: [] };
       }
       const verificaciones = await tx.verificacionCumplimiento.findMany({
         where: { clienteId: cliente.id },
@@ -148,9 +176,26 @@ export default async function CumplimientoPage({ params }: PageProps) {
         },
         orderBy: { consultadoEn: "desc" },
       });
+      // [Agente UI-15, Inc 15] overrides registrados del cliente (RLS filtra
+      // por el tenant del token; acto ADICIONAL: nunca altera la alerta).
+      const overrides = await tx.overrideAlerta.findMany({
+        where: { clienteId: cliente.id },
+        select: {
+          id: true,
+          fuente: true,
+          resultado: true,
+          motivo: true,
+          actor: true,
+          estadoFirma: true,
+          firmaDetalle: true,
+          creadoEn: true,
+        },
+        orderBy: { creadoEn: "desc" },
+      });
       return {
         cliente,
         verificaciones: verificaciones as VerificacionFila[],
+        overrides: overrides as OverrideFila[],
       };
     },
   );
@@ -197,6 +242,14 @@ export default async function CumplimientoPage({ params }: PageProps) {
       masReciente.set(v.fuente, v);
     }
   }
+
+  // [Agente UI-15, Inc 15] fuentes cuyo ULTIMO resultado es adverso
+  // (ALERTA / INHABILITADO_*): sobre ellas se puede registrar un override.
+  const fuentesAdversas: FuenteAdversa[] = FUENTES.flatMap(({ fuente, etiqueta }) => {
+    const fila = masReciente.get(fuente);
+    if (!fila || !RESULTADOS_ADVERSOS.has(fila.resultado)) return [];
+    return [{ fuente, etiqueta, resultado: fila.resultado }];
+  });
 
   return (
     <main style={{ maxWidth: 900, margin: "0 auto", padding: "3rem 1.5rem" }}>
@@ -296,6 +349,86 @@ export default async function CumplimientoPage({ params }: PageProps) {
           Se muestra el resultado mas reciente por fuente. La ausencia de registro
           se muestra como &ldquo;Sin verificar&rdquo;.
         </p>
+      </section>
+
+      {/* [Agente UI-15, Inc 15] Overrides registrados + form (decision C11).
+          El override documenta la decision HUMANA de continuar pese al resultado
+          adverso: motivado, atribuido, sellado, encadenado. NUNCA borra la alerta. */}
+      <section style={{ marginTop: "2rem" }}>
+        <h2 style={{ fontSize: "1.2rem" }}>Overrides registrados</h2>
+        {datos.overrides.length > 0 ? (
+          <table
+            style={{ width: "100%", borderCollapse: "collapse", marginTop: "0.5rem" }}
+          >
+            <thead>
+              <tr style={{ textAlign: "left", borderBottom: "2px solid #e2e8f0" }}>
+                <th style={{ padding: "0.5rem 0.75rem" }}>Fecha</th>
+                <th style={{ padding: "0.5rem 0.75rem" }}>Fuente</th>
+                <th style={{ padding: "0.5rem 0.75rem" }}>Resultado</th>
+                <th style={{ padding: "0.5rem 0.75rem" }}>Motivo</th>
+                <th style={{ padding: "0.5rem 0.75rem" }}>Actor</th>
+                <th style={{ padding: "0.5rem 0.75rem" }}>Firma</th>
+              </tr>
+            </thead>
+            <tbody>
+              {datos.overrides.map((o: OverrideFila) => (
+                <tr key={o.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                  <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.8rem", color: "#94a3b8" }}>
+                    {o.creadoEn.toISOString()}
+                  </td>
+                  <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.85rem" }}>
+                    {o.fuente}
+                  </td>
+                  <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.85rem" }}>
+                    {o.resultado}
+                  </td>
+                  <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.85rem", color: "#475569" }}>
+                    {o.motivo}
+                  </td>
+                  <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.85rem" }}>
+                    {o.actor}
+                  </td>
+                  <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.8rem" }}>
+                    {o.estadoFirma === "FIRMADO" ? (
+                      <span style={{ color: "#065f46", fontWeight: 600 }}>
+                        FIRMADO
+                        {o.firmaDetalle ? ` — ${o.firmaDetalle}` : ""}
+                      </span>
+                    ) : (
+                      <span style={{ color: "#92400e" }}>
+                        SIN_FIRMA — pendiente de firma electronica (e.firma); el
+                        acto queda igualmente motivado, sellado y atribuido.
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p style={{ color: "#94a3b8", fontSize: "0.9rem", marginTop: "0.5rem" }}>
+            No hay overrides registrados para este cliente.
+          </p>
+        )}
+
+        {fuentesAdversas.length > 0 ? (
+          <>
+            <h3 style={{ fontSize: "1rem", marginTop: "1.25rem", marginBottom: 0 }}>
+              Registrar override
+            </h3>
+            <p style={{ color: "#475569", fontSize: "0.85rem", margin: "0.25rem 0 0" }}>
+              Hay fuentes con resultado adverso. El responsable puede documentar
+              aqui su decision de continuar operando con este cliente, con motivo
+              obligatorio (decision C11).
+            </p>
+            <OverrideForm clienteId={cliente.id} fuentesAdversas={fuentesAdversas} />
+          </>
+        ) : (
+          <p style={{ color: "#94a3b8", fontSize: "0.8rem", marginTop: "0.75rem" }}>
+            El registro de override se habilita cuando alguna fuente tiene
+            resultado adverso (ALERTA o inhabilitacion presunta/definitiva).
+          </p>
+        )}
       </section>
 
       <section style={{ marginTop: "2rem" }}>
