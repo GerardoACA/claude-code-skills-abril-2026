@@ -37,6 +37,14 @@ type DossierSellado = {
   estadoProbatorio: string;
   version: number;
   creadoEn: string;
+  /**
+   * URL de la copia WORM del blob (Inc 14) o null si no la hay (almacén no
+   * configurado o guardado fallido). Trade-off documentado en almacen-worm.ts:
+   * la URL de Vercel Blob (access "public") no es adivinable pero SÍ pública;
+   * solo se muestra aquí, dentro de la sesión autenticada del tenant
+   * (mitigación futura: blob privado o proxy autenticado).
+   */
+  wormUrl: string | null;
 };
 
 /** Datos de la vista: operación + sus dossieres sellados. */
@@ -86,6 +94,7 @@ export default async function DossierOperacionPage({
           estadoProbatorio: true,
           version: true,
           creadoEn: true,
+          wormUrl: true,
         },
         orderBy: { creadoEn: "desc" },
       });
@@ -101,6 +110,7 @@ export default async function DossierOperacionPage({
           estadoProbatorio: d.estadoProbatorio,
           version: d.version,
           creadoEn: d.creadoEn.toISOString(),
+          wormUrl: d.wormUrl,
         })),
       };
     },
@@ -209,6 +219,25 @@ export default async function DossierOperacionPage({
                     >
                       {d.estadoProbatorio}
                     </span>
+                    <br />
+                    {/* Copia WORM (Inc 14): el blob guarda el JSON íntegro del
+                        paquete; el sha256 de arriba es el sello de CONTENIDO
+                        (excluye generadoEn/selloPaquete). La URL es pública
+                        pero no adivinable; solo se muestra en esta sesión. */}
+                    {d.wormUrl ? (
+                      <a
+                        href={d.wormUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: "#2563eb" }}
+                      >
+                        Copia WORM ↗
+                      </a>
+                    ) : (
+                      <span style={{ color: "#64748b" }}>
+                        sin copia WORM; anclado por sha256 y regenerable
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -218,9 +247,11 @@ export default async function DossierOperacionPage({
           <section style={{ marginTop: "1.75rem" }}>
             <h2 style={{ fontSize: "1.1rem" }}>Descargar / regenerar</h2>
             <p style={{ color: "#475569", fontSize: "0.9rem" }}>
-              El JSON del dossier no se almacena como blob todavía: se regenera
-              desde la evidencia viva y se coteja contra el sha256 sellado. Si
-              difieren, hubo evidencia posterior al sellado (también es señal).
+              La descarga regenera el JSON desde la evidencia viva y lo coteja
+              contra el sha256 sellado; si difieren, hubo evidencia posterior
+              al sellado (también es señal). Cuando el almacén WORM está
+              configurado, cada dossier conserva además su copia inmutable
+              (&ldquo;Copia WORM ↗&rdquo; arriba).
             </p>
             <DescargarDossier
               operacionId={vista.operacionId}

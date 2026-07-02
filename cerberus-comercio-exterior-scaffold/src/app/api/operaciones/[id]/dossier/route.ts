@@ -7,8 +7,11 @@
 //            COMPARA con el sha256 del último Documento "DOSSIER_DILIGENCIA"
 //            sellado para esa operación (si existe).
 //
-// El blob del dossier NO se persiste todavía (sin object storage): el sha256
-// sellado en el Documento ancla el contenido y el paquete es regenerable. Si el
+// Inc 14: el blob del dossier ahora puede persistirse en el almacén WORM
+// (Documento.wormUrl; ver src/lib/almacen-worm.ts). Este GET NO cambia su
+// lógica de cotejo: el sha256 sellado en el Documento ancla el contenido y el
+// paquete sigue siendo regenerable; la URL de la copia WORM del último dossier
+// viaja como header informativo `X-Dossier-Worm-Url` (si existe). Si el
 // sha256 regenerado difiere del sellado, se ADVIERTE vía header
 // `X-Dossier-Match: "false"` — es evidencia de que hubo actividad posterior al
 // sellado (eso también es señal probatoria, no un error).
@@ -48,6 +51,8 @@ type Resultado =
       json: string;
       shaRegenerado: string;
       shaSellado: string | null;
+      /** URL de la copia WORM del último dossier sellado (Inc 14), si existe. */
+      wormUrl: string | null;
       match: DossierMatch;
     }
   | { tipo: "no-encontrada" };
@@ -96,7 +101,7 @@ export async function GET(
       // con FK directa operacionId, Inc 8). Puede no existir todavía.
       const ultimoDossier = await tx.documento.findFirst({
         where: { tenantId, operacionId: op.id, tipo: TIPO_DOSSIER },
-        select: { sha256: true },
+        select: { sha256: true, wormUrl: true },
         orderBy: { creadoEn: "desc" },
       });
 
@@ -114,6 +119,7 @@ export async function GET(
         json,
         shaRegenerado,
         shaSellado,
+        wormUrl: ultimoDossier?.wormUrl ?? null,
         match,
       };
     });
@@ -142,6 +148,11 @@ export async function GET(
       "X-Dossier-Sha256-Regenerado": resultado.shaRegenerado,
       ...(resultado.shaSellado !== null
         ? { "X-Dossier-Sha256-Sellado": resultado.shaSellado }
+        : {}),
+      // Inc 14 (informativo, sin cambiar la lógica de cotejo): URL de la
+      // copia WORM del último dossier sellado, si el almacén la guardó.
+      ...(resultado.wormUrl !== null
+        ? { "X-Dossier-Worm-Url": resultado.wormUrl }
         : {}),
     },
   });

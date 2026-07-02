@@ -17,11 +17,23 @@
 //   4) + Evento BitacoraAuditoria "DOSSIER_GENERADO" encadenado (hashPrev del
 //      último evento del tenant), mismo patrón que estado/route.ts.
 //
-// El JSON del dossier NO se persiste como blob todavía (no hay object storage):
-// el sha256 ancla el contenido y el paquete es regenerable con estas mismas
-// funciones; el almacenamiento WORM del blob (wormUrl) es un paso futuro. El
-// GET de descarga regenera el paquete y ADVIERTE si su sha256 difiere del
-// sellado — esa divergencia también es señal probatoria.
+// Incremento 14: el JSON del dossier ahora SÍ se persiste como blob en un
+// almacén WORM enchufable (src/lib/almacen-worm.ts, Vercel Blob) en una ruta
+// content-addressed; si el almacén está configurado, wormUrl del Documento
+// apunta a la copia inmutable. Sin almacén (NoOp) todo sigue como antes: el
+// sha256 ancla el contenido y el paquete es regenerable con estas mismas
+// funciones. El GET de descarga regenera el paquete y ADVIERTE si su sha256
+// difiere del sellado — esa divergencia también es señal probatoria.
+//
+// RELACIÓN blob-completo vs sello de contenido (fix 9.1, NO cambia aquí):
+//   - selloContenidoDossier EXCLUYE `generadoEn` (timestamp de pared) y
+//     `selloPaquete` (que depende de generadoEn): ancla la EVIDENCIA.
+//   - El blob WORM guarda el JSON ÍNTEGRO del paquete (CON generadoEn y
+//     selloPaquete): es la copia literal emitida en el instante de la
+//     diligencia. Por eso el sha256 del ARCHIVO del blob no es el sello del
+//     Documento; el cotejo perito↔sello se hace recomputando
+//     selloContenidoDossier sobre el JSON del blob. El sello de contenido
+//     sigue siendo EL ancla; el blob es la copia persistida y verificable.
 //
 // NO toca el schema: usa SOLO campos reales de Documento y BitacoraAuditoria.
 // Corre SIEMPRE dentro de una transacción tenant-scoped (withTenantFromSession
@@ -37,8 +49,10 @@ import {
 } from "@/lib/exporte-operacion";
 import {
   armarExporteProbatorio,
+  serializarPaquete,
   type PaqueteProbatorio,
 } from "@/lib/probatoria/exporte-probatorio";
+import { obtenerAlmacen } from "@/lib/almacen-worm";
 import { canonicalizar } from "@/lib/probatoria/hash-chain";
 import { sha256 } from "@/lib/probatoria/hash";
 
@@ -54,6 +68,12 @@ export interface ResultadoDossier {
   readonly documentoId: string;
   /** SHA-256 (hex, 64 chars) del JSON canónico del paquete probatorio. */
   readonly sha256: string;
+  /**
+   * URL de la copia WORM del blob del dossier (Inc 14), si el almacén está
+   * configurado y el guardado tuvo éxito; `null` si no (NoOp o fallo). Campo
+   * opcional: los llamadores del Inc 9 siguen compilando sin cambios.
+   */
+  readonly wormUrl?: string | null;
 }
 
 /**
@@ -107,8 +127,9 @@ export async function generarDossier(
   const selloDossier = selloContenidoDossier(paquete);
 
   // 3) Documento "DOSSIER_DILIGENCIA" ligado por FK directa a la operación.
-  //    Los campos opcionales (wormUrl, vence, expedienteKycId,
-  //    expedienteProbatorioId, expedienteDobleId) quedan en null; el
+  //    Los campos opcionales (vence, expedienteKycId, expedienteProbatorioId,
+  //    expedienteDobleId) quedan en null; wormUrl se completa en el paso 3b
+  //    si el almacén WORM guarda el blob (Inc 14); el
   //    estadoProbatorio y version toman sus defaults del schema
   //    (EVIDENCIA_PRELIMINAR, 1).
   const documento = await tx.documento.create({
@@ -120,6 +141,43 @@ export async function generarDossier(
     },
     select: { id: true },
   });
+
+  // 3b) Almacén WORM (Inc 14): persistir el BLOB del dossier en una ruta
+  //     CONTENT-ADDRESSED (incluye el selloDossier → mismo contenido, misma
+  //     ruta → reintentos idempotentes; ver almacen-worm.ts). Se guarda el
+  //     JSON ÍNTEGRO del paquete (con generadoEn y selloPaquete), mientras que
+  //     selloDossier excluye esos campos: el sello ancla la EVIDENCIA y el
+  //     blob es la copia literal emitida (ver cabecera de este archivo).
+  //
+  //     El almacén NUNCA hace fallar el dossier: try/catch total. Si guarda
+  //     ok → se actualiza wormUrl del Documento; si no (NoOp honesto o fallo
+  //     de red) → wormUrl queda null y el dossier sigue anclado por sha256 y
+  //     regenerable, exactamente como hasta el Inc 13. El detalle del intento
+  //     (éxito, NoOp o error) viaja en el payload del evento de bitácora.
+  let wormUrl: string | null = null;
+  let almacenDetalle: string;
+  try {
+    const jsonPaquete = serializarPaquete(paquete);
+    const guardado = await obtenerAlmacen().guardar(
+      `dossiers/${tenantId}/${operacion.id}/${selloDossier}.json`,
+      jsonPaquete,
+      "application/json",
+    );
+    almacenDetalle = guardado.detalle;
+    if (guardado.ok && guardado.url) {
+      wormUrl = guardado.url;
+      await tx.documento.update({
+        where: { id: documento.id },
+        data: { wormUrl },
+        select: { id: true },
+      });
+    }
+  } catch (error) {
+    // Defensa extra por si un conector llegara a lanzar pese a su contrato.
+    almacenDetalle = `Almacén WORM lanzó excepción (ignorada): ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+  }
 
   // 4) Bitácora append-only: encadenar con el sha256 del último evento del
   //    tenant (la tx tiene app.tenant_id fijado => la lectura es tenant-scoped;
@@ -142,6 +200,11 @@ export async function generarDossier(
     referencia: operacion.referencia,
     documentoId: documento.id,
     dossierSha256: selloDossier,
+    // Inc 14: resultado del intento de guardado WORM (honesto: url o null +
+    // detalle del conector — éxito, NoOp o error). No altera el encadenado:
+    // solo suma campos al payload sellado de ESTE evento.
+    wormUrl,
+    almacenDetalle,
     creadoEn: creadoEn.toISOString(),
     hashPrev,
   };
@@ -162,5 +225,5 @@ export async function generarDossier(
     select: { id: true },
   });
 
-  return { documentoId: documento.id, sha256: selloDossier };
+  return { documentoId: documento.id, sha256: selloDossier, wormUrl };
 }
