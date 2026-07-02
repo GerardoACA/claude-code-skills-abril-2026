@@ -43,7 +43,13 @@ export interface OperacionParaExporte {
  * Categoría del registro dentro del expediente, para que el perito distinga
  * el origen de cada eslabón sin acceso al sistema vivo.
  */
-export type TipoRegistroExporte = "bitacora" | "documento" | "paso_despacho";
+export type TipoRegistroExporte =
+  | "bitacora"
+  | "documento"
+  | "paso_despacho"
+  // Inc 25: opinión de cumplimiento (32-D) ingestada del cliente, con su
+  // veredicto de autenticidad y el resultado del cotejo en vivo (QR del SAT).
+  | "opinion_cumplimiento";
 
 // -----------------------------------------------------------------------------
 // Formas mínimas de lo que leemos de la BD (subconjunto de los modelos Prisma).
@@ -79,6 +85,21 @@ interface PasoEvidencia {
   readonly detalle: string | null;
   readonly sha256: string;
   readonly completadoEn: Date;
+}
+
+// Inc 25: opinión de cumplimiento (32-D) ingestada del cliente. Subconjunto de
+// OpinionCumplimientoIngestada (campos probatorios: folio, veredicto, sentido,
+// resultado del cotejo en vivo y la huella sha256 del texto ingestado).
+interface OpinionEvidencia {
+  readonly id: string;
+  readonly folio: string | null;
+  readonly rfcDocumento: string | null;
+  readonly sentido: string;
+  readonly resultado: string;
+  readonly cotejoEnVivo: string;
+  readonly cotejoDetalle: string | null;
+  readonly sha256: string;
+  readonly creadoEn: Date;
 }
 
 /**
@@ -247,6 +268,41 @@ async function reunirPasos(
 }
 
 // -----------------------------------------------------------------------------
+// Inc 25: opiniones de cumplimiento (32-D) del CLIENTE de la operación.
+//   La opinión es evidencia por cliente (no por operación): se incluyen todas
+//   las opiniones ingestadas del cliente, en orden cronológico, como contexto
+//   probatorio del despacho (¿estaba el cliente al corriente / con opinión
+//   auténtica y cotejada al operar?). tenant-scoped por RLS. Si el cliente no
+//   tiene opiniones, no se añade ningún registro (la cadena queda idéntica a la
+//   de antes de Inc 25 → no afecta el cotejo de dossiers previos).
+// -----------------------------------------------------------------------------
+const MAX_OPINIONES = 100;
+
+async function reunirOpiniones(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  clienteId: string,
+): Promise<readonly OpinionEvidencia[]> {
+  const opiniones = (await tx.opinionCumplimientoIngestada.findMany({
+    where: { tenantId, clienteId },
+    select: {
+      id: true,
+      folio: true,
+      rfcDocumento: true,
+      sentido: true,
+      resultado: true,
+      cotejoEnVivo: true,
+      cotejoDetalle: true,
+      sha256: true,
+      creadoEn: true,
+    },
+    orderBy: { creadoEn: "asc" },
+    take: MAX_OPINIONES,
+  })) as OpinionEvidencia[];
+  return opiniones;
+}
+
+// -----------------------------------------------------------------------------
 // Construcción de payloads canónicos por registro.
 //
 // Cada payload preserva el sello ORIGINAL de la BD (sha256/hashPrev/estado) para
@@ -361,6 +417,38 @@ function payloadPaso(
   };
 }
 
+function payloadOpinion(
+  op: OpinionEvidencia,
+  expediente: string,
+  operacion: OperacionParaExporte,
+  orden: number,
+): PayloadRegistro {
+  return {
+    tipo: "opinion_cumplimiento",
+    expediente,
+    operacionId: operacion.id,
+    clienteId: operacion.clienteId,
+    orden,
+    datos: {
+      id: op.id,
+      folio: op.folio,
+      rfcDocumento: op.rfcDocumento,
+      sentido: op.sentido,
+      veredictoAutenticidad: op.resultado,
+      cotejoEnVivo: op.cotejoEnVivo,
+      cotejoDetalle: op.cotejoDetalle,
+      creadoEn: op.creadoEn.toISOString(),
+      asociacion: "cliente_de_la_operacion",
+    },
+    selloOriginal: {
+      // Huella del texto de la opinión ingestada (cotejo del perito).
+      sha256: op.sha256,
+      hashPrev: null,
+      estado: "EVIDENCIA_PRELIMINAR",
+    },
+  };
+}
+
 /**
  * Construye el `EntradaExporte` de una operación reuniendo su evidencia dentro
  * de la transacción `tx` (tenant-scoped por RLS). El resultado se pasa tal cual
@@ -369,7 +457,8 @@ function payloadPaso(
  * Orden de los registros (define la hash-chain del exporte):
  *   1) eventos de BitacoraAuditoria (cronológico),
  *   2) documentos (cronológico),
- *   3) pasos del despacho (cronológico).
+ *   3) pasos del despacho (cronológico),
+ *   4) opiniones de cumplimiento 32-D del cliente (cronológico; Inc 25).
  *
  * @param tx        cliente transaccional con app.tenant_id ya fijado.
  * @param tenantId  tenant del JWT (defensa en profundidad sobre la RLS).
@@ -386,10 +475,12 @@ export async function construirEntradaExporte(
     { eventos, asociacion },
     { documentos, asociacion: asociacionDocs },
     pasos,
+    opiniones,
   ] = await Promise.all([
     reunirEventos(tx, tenantId, operacion),
     reunirDocumentos(tx, tenantId, operacion.id),
     reunirPasos(tx, tenantId, operacion.id),
+    reunirOpiniones(tx, tenantId, operacion.clienteId),
   ]);
 
   // Payloads en orden de cadena. `orden` es el índice global (estable).
@@ -405,6 +496,11 @@ export async function construirEntradaExporte(
   }
   for (const paso of pasos) {
     payloads.push(payloadPaso(paso, expediente, operacion, orden++));
+  }
+  // Inc 25: opiniones 32-D del cliente al final de la cadena. Si no hay
+  // ninguna, este bucle no añade nada y la cadena queda idéntica a la previa.
+  for (const op of opiniones) {
+    payloads.push(payloadOpinion(op, expediente, operacion, orden++));
   }
 
   // Se recomputa la hash-chain del exporte sobre los payloads canónicos: el
