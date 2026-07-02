@@ -55,6 +55,25 @@ IMPORTANTE: CAMBIA EL SCHEMA (modelo `OpinionCumplimientoIngestada` + enums `Res
    psql "$NEON_ADMIN" -v ON_ERROR_STOP=1 -f prisma/sql/01-enable-rls-policies.sql
    ```
 
+7-bis) COTEJO EN VIVO REAL (opcional pero YA IMPLEMENTADO — no es NoOp):
+   El verificador de opinión ante el SAT ya trae un cliente HTTP real
+   (`VerificadorOpinionSatHttp`). Para encenderlo, define en el proyecto de
+   Vercel (Production) las variables de entorno y vuelve a desplegar:
+   ```
+   vercel env add SAT_OPINION_PROVIDER production   # valor: HTTP
+   vercel env add SAT_OPINION_URL production        # endpoint que valida el folio ante el SAT
+   vercel env add SAT_OPINION_API_KEY production     # (opcional) token Bearer
+   ```
+   Contrato del endpoint (POST JSON):
+   - Request:  { "rfc": string, "folio": string, "sentidoDeclarado": string }
+   - Response: { "encontrada": boolean, "sentido"?: "POSITIVA"|"NEGATIVA"|"SIN_OBLIGACIONES"|"NO_INSCRITO", "detalle"?: string }
+   Mapeo: encontrada=false → DISCREPANCIA; sentido ≠ declarado → DISCREPANCIA;
+   coincide → CONFIRMADA; error/timeout/JSON inválido → NO_DISPONIBLE (fail-safe).
+   Si NO defines estas variables, el cotejo queda en NO_DISPONIBLE (NoOp honesto)
+   y la opinión se resuelve por el análisis de autenticidad del texto. Apunta
+   SAT_OPINION_URL a tu gateway / PAC / servicio que valide el folio (el folio te
+   lo entrega el cliente; el cotejo por folio NO requiere su e.firma).
+
 8) `npx vercel --prod`
 
 9) Verifica en https://cerberus-comercio-exterior.vercel.app (admin@demo.mx / demo1234). En un cliente → "Verificación de cumplimiento":
@@ -65,5 +84,9 @@ IMPORTANTE: CAMBIA EL SCHEMA (modelo `OpinionCumplimientoIngestada` + enums `Res
    Dame un resumen corto y la URL.
 
 Notas:
-- El **cotejo en vivo** por folio ante el SAT es un conector (`SAT_OPINION_PROVIDER`): hoy NoOp, listo para enchufar sin tocar UI. No requiere la e.firma del cliente (es verificación pública del acuse) — por eso este camino funciona aunque no den su .cer.
+- El **cotejo en vivo** por folio ante el SAT YA está IMPLEMENTADO (cliente HTTP
+  real `VerificadorOpinionSatHttp`, con pruebas `tests/verificador-opinion.test.ts`):
+  se enciende con las variables del paso 7-bis; sin ellas queda en NO_DISPONIBLE
+  honesto. Un cotejo **CONFIRMADA** del SAT tiene PRIORIDAD sobre la heurística de
+  texto; una **DISCREPANCIA** (folio inexistente o sentido distinto) genera ALERTA.
 - PAC y PSC siguen diferidos (NoOp).
