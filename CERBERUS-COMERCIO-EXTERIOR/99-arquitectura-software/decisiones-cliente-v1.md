@@ -46,3 +46,12 @@
 - El **MVP se reduce y se enfoca**: orquestación + KYC (portado de SIDF MD) + dossier de defensa + capa probatoria, sin motores sustantivos ni recinto/RFE ni IMMEX completo.
 - **Sube a primera clase desde Fase 0/1:** capa probatoria (con la corrección SHA-256 + PSC/TSA), exporte probatorio, acceso de autoridad default-deny, contrato de encargo y DPIA.
 - **Se difiere explícitamente:** motores de clasificación/valoración (reservando modelo de datos), recinto/RFE, IMMEX completo y la integración en vivo con el SEA.
+
+## Adenda (2-jul-2026) — Infraestructura de certificación ya contratada
+El cliente confirma que YA CUENTA con:
+- **PAC** (timbrado CFDI) — no se requiere selección de proveedor.
+- **PSC / NOM-151** (constancias de conservación).
+- **3 blockchains** para anclaje probatorio (patrón Polygon/Mainnet/Sepolia ya construido en SIDF: lib/ethereum-anchor.ts).
+**Decisión:** los módulos de CERBERUS CE se construyen con CONECTORES (interfaces enchufables,
+patrón SelladorCalificado NoOp/real ya usado): TimbradorPac, SelladorNom151, AnclaBlockchain.
+La conexión real a sus APIs se hará "más adelante" — los ganchos deben quedar listos desde ahora.
