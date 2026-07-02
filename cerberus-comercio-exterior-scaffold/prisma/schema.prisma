@@ -782,3 +782,41 @@ model ComprobanteCfdi {
   @@index([tenantId, estado])
   @@map("comprobante_cfdi")
 }
+
+// ============================================================================
+// Override firmado de alertas (Incremento 15) — decisión C11: cuando una
+// verificación es adversa (ALERTA / INHABILITADO_*), el RESPONSABLE puede
+// decidir continuar y ese acto queda motivado, atribuido, sellado y —cuando
+// se integre la e.firma del titular— FIRMADO. El override NO borra ni altera
+// la alerta: la acompaña (C9: el sistema alerta, el responsable decide).
+// ============================================================================
+
+/// Estado de firma electrónica del override (conector FirmadorEfirma; hoy
+/// NoOp honesto = SIN_FIRMA "pendiente de firma electrónica").
+enum EstadoFirmaOverride {
+  SIN_FIRMA
+  FIRMADO
+}
+
+model OverrideAlerta {
+  id             String   @id @default(cuid())
+  tenantId       String   @map("tenant_id")
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clienteId      String   @map("cliente_id")
+  cliente        Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  fuente         FuenteVerificacion
+  /// Resultado adverso que se decide sobrellevar (copia legible, p. ej. "INHABILITADO_PRESUNTO").
+  resultado      String
+  /// Motivación OBLIGATORIA del responsable (mínimo 20 caracteres).
+  motivo         String
+  actor          String
+  /// SHA-256 del payload canónico del acto (cliente, fuente, resultado, motivo, actor, ts).
+  sha256         String   @db.Char(64)
+  estadoFirma    EstadoFirmaOverride @default(SIN_FIRMA) @map("estado_firma")
+  /// Sello/serial del certificado cuando se firme con e.firma real (conector futuro).
+  firmaDetalle   String?  @map("firma_detalle")
+  creadoEn       DateTime @default(now()) @map("creado_en")
+
+  @@index([tenantId, clienteId, fuente])
+  @@map("override_alerta")
+}
