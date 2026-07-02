@@ -55,31 +55,31 @@ IMPORTANTE: CAMBIA EL SCHEMA (modelo `OpinionCumplimientoIngestada` + enums `Res
    psql "$NEON_ADMIN" -v ON_ERROR_STOP=1 -f prisma/sql/01-enable-rls-policies.sql
    ```
 
-7-bis) COTEJO EN VIVO REAL (opcional pero YA IMPLEMENTADO — no es NoOp):
-   El verificador de opinión ante el SAT ya trae un cliente HTTP real
-   (`VerificadorOpinionSatHttp`). Para encenderlo, define en el proyecto de
-   Vercel (Production) las variables de entorno y vuelve a desplegar:
-   ```
-   vercel env add SAT_OPINION_PROVIDER production   # valor: HTTP
-   vercel env add SAT_OPINION_URL production        # endpoint que valida el folio ante el SAT
-   vercel env add SAT_OPINION_API_KEY production     # (opcional) token Bearer
-   ```
-   Contrato del endpoint (POST JSON):
-   - Request:  { "rfc": string, "folio": string, "sentidoDeclarado": string }
-   - Response: { "encontrada": boolean, "sentido"?: "POSITIVA"|"NEGATIVA"|"SIN_OBLIGACIONES"|"NO_INSCRITO", "detalle"?: string }
-   Mapeo: encontrada=false → DISCREPANCIA; sentido ≠ declarado → DISCREPANCIA;
-   coincide → CONFIRMADA; error/timeout/JSON inválido → NO_DISPONIBLE (fail-safe).
-   Si NO defines estas variables, el cotejo queda en NO_DISPONIBLE (NoOp honesto)
-   y la opinión se resuelve por el análisis de autenticidad del texto. Apunta
-   SAT_OPINION_URL a tu gateway / PAC / servicio que valide el folio (el folio te
-   lo entrega el cliente; el cotejo por folio NO requiere su e.firma).
-
 8) `npx vercel --prod`
+
+   COTEJO EN VIVO — YA FUNCIONA POR QR, SIN CONFIGURACIÓN:
+   El mecanismo oficial del SAT es el CÓDIGO QR de la opinión. El operador escanea
+   el QR (móvil/lector), pega su URL en el form de ingesta, y CERBERUS abre esa
+   página del SAT y compara folio, RFC y sentido → CONFIRMADA / DISCREPANCIA /
+   NO_DISPONIBLE. NO requiere variables de entorno ni la e.firma del cliente.
+   Seguridad: solo se abren URLs https de dominios del SAT (allowlist sat.gob.mx;
+   amplíala con SAT_OPINION_HOSTS="foo.gob.mx,bar.gob.mx" si hiciera falta).
+   Fail-safe: si la página del SAT bloquea el acceso automático, cae a
+   NO_DISPONIBLE (nunca a un falso CONFIRMADA) y el cotejo visual del QR sigue
+   siendo válido como respaldo.
+
+   ALTERNO (opcional) — gateway/PAC por HTTP: si además tienes un servicio que
+   valida el folio, actívalo con `SAT_OPINION_PROVIDER=HTTP`, `SAT_OPINION_URL`,
+   `SAT_OPINION_API_KEY` (Bearer opcional). Contrato del endpoint:
+   - Request  (POST JSON): { "rfc", "folio", "sentidoDeclarado" }
+   - Response (200 JSON):  { "encontrada": boolean, "sentido"?, "detalle"? }
+   Se usa como respaldo cuando no hay URL de QR del SAT.
 
 9) Verifica en https://cerberus-comercio-exterior.vercel.app (admin@demo.mx / demo1234). En un cliente → "Verificación de cumplimiento":
    - **Inc 22 (opinión):** clic en "Ingerir opinión 32-D y validar autenticidad".
-     a. Pega un texto que simule una opinión del SAT (incluye "Servicio de Administración Tributaria", "Opinión del cumplimiento", "32-D", un "Folio: ABC123456", el RFC del cliente y "Positivo") → veredicto **AUTENTICA**, folio y sentido extraídos, cotejo **NO_DISPONIBLE** (conector), y OPINION_32D queda **AL_CORRIENTE** en la tabla de cumplimiento.
+     a. Pega un texto que simule una opinión del SAT (incluye "Servicio de Administración Tributaria", "Opinión del cumplimiento", "32-D", un "Folio: ABC123456", el RFC del cliente y "Positivo") → veredicto **AUTENTICA**, folio y sentido extraídos, y OPINION_32D queda **AL_CORRIENTE**.
      b. Pega un texto sin marcadores del SAT o con otro RFC → **NO_AUTENTICA** → OPINION_32D **ALERTA**. Evento `OPINION_INGESTADA` en bitácora (encadenado), visible en el exporte.
+     c. **Cotejo por QR:** escanea el QR de una opinión real, pega su URL en el campo "URL del código QR" → CERBERUS abre la página del SAT y devuelve **CONFIRMADA** (o **DISCREPANCIA** si no coincide). Con una URL que no sea del SAT, responde **NO_DISPONIBLE** sin abrirla (anti-SSRF).
    - **Inc 23 (IMMEX):** en el mismo cliente → "Saldos IMMEX (ERP)" → se ve la explicación del "para qué" y, como el ERP no está conectado (NoOp), el bloque "ERP del cliente no conectado" pidiendo qué ERP usa. (Cuando se defina `ERP_PROVIDER` y su adaptador, la misma pantalla mostrará los saldos con semáforo.)
    Dame un resumen corto y la URL.
 

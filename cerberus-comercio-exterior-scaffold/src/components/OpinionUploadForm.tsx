@@ -38,6 +38,7 @@ const COLOR: Record<Veredicto, { fondo: string; borde: string; texto: string }> 
 export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
   const router = useRouter();
   const [texto, setTexto] = useState<string>("");
+  const [urlQr, setUrlQr] = useState<string>("");
   const [nombreArchivo, setNombreArchivo] = useState<string>("");
   const [enviando, setEnviando] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +66,11 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
       const res = await fetch(`/api/clientes/${encodeURIComponent(clienteId)}/opinion`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ texto: texto.trim(), ...(nombreArchivo ? { nombreArchivo } : {}) }),
+        body: JSON.stringify({
+          texto: texto.trim(),
+          ...(nombreArchivo ? { nombreArchivo } : {}),
+          ...(urlQr.trim() ? { urlQr: urlQr.trim() } : {}),
+        }),
       });
       const data: unknown = await res.json();
       if (!res.ok) {
@@ -79,6 +84,7 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
       }
       setResultado(data as RespuestaOk);
       setTexto("");
+      setUrlQr("");
       setNombreArchivo("");
       router.refresh();
     } catch {
@@ -118,9 +124,11 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
       >
         Pega el texto de la <strong>opinión de cumplimiento (32-D)</strong> que el
         cliente entregó (del PDF/impreso). La IA valida su autenticidad
-        (marcadores del SAT, folio, RFC, sentido) para detectar documentos falsos;
-        el <strong>cotejo en vivo por folio ante el SAT</strong> lo ratifica cuando
-        se conecte (no requiere la e.firma del cliente).
+        (marcadores del SAT, folio, RFC, sentido) para detectar documentos falsos.
+        Toda opinión vigente trae un <strong>código QR</strong>: escanéalo y pega
+        aquí su <strong>URL</strong> para el <strong>cotejo en vivo ante el SAT</strong>
+        (compara folio, RFC y sentido con la página oficial; no requiere la e.firma
+        del cliente). Solo se abren URLs del dominio del SAT.
       </div>
 
       <label htmlFor="op-file" style={labelStyle}>
@@ -146,6 +154,19 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
         placeholder="Servicio de Administración Tributaria — Opinión del cumplimiento de obligaciones fiscales (art. 32-D)…"
         rows={8}
         style={{ ...inputStyle, fontFamily: "monospace", fontSize: "0.78rem" }}
+      />
+
+      <label htmlFor="op-urlqr" style={labelStyle}>
+        URL del código QR (escanéalo con tu móvil/lector y pega la dirección)
+      </label>
+      <input
+        id="op-urlqr"
+        type="url"
+        value={urlQr}
+        disabled={enviando}
+        onChange={(e) => setUrlQr(e.target.value)}
+        placeholder="https://…sat.gob.mx/…"
+        style={inputStyle}
       />
 
       <button

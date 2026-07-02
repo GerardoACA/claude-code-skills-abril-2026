@@ -50,6 +50,8 @@ export interface AnalisisOpinion {
   readonly folio: string | null;
   readonly sentido: SentidoOpinion;
   readonly fechaEmision: string | null;
+  /** URL de verificación detectada en el texto (la que codifica el QR del SAT). */
+  readonly urlVerificacion: string | null;
   readonly checks: readonly CheckOpinion[];
   readonly resumen: string;
 }
@@ -97,6 +99,21 @@ function extraerFolio(texto: string): string | null {
   return null;
 }
 
+/** URLs presentes en el texto (la opinión imprime la URL que codifica el QR). */
+const URL_RE = /https?:\/\/[^\s"'<>)]+/gi;
+
+/**
+ * Extrae la URL de verificación. Si hay varias, prefiere una alojada en un
+ * dominio del SAT (sat.gob.mx); si no, devuelve la primera encontrada.
+ */
+function extraerUrlVerificacion(texto: string): string | null {
+  const urls = texto.match(URL_RE);
+  if (!urls || urls.length === 0) return null;
+  const limpias = urls.map((u) => u.replace(/[.,;]+$/, ""));
+  const delSat = limpias.find((u) => /(^|\.)sat\.gob\.mx(\/|$|:)/i.test(u));
+  return delSat ?? limpias[0];
+}
+
 function extraerFecha(norm: string): string | null {
   // dd/mm/aaaa o aaaa-mm-dd (heurístico).
   const m1 = norm.match(/(\d{2})\/(\d{2})\/(\d{4})/);
@@ -130,6 +147,7 @@ export function analizarOpinion(texto: string, rfcCliente: string): AnalisisOpin
       folio: null,
       sentido: "INDETERMINADO",
       fechaEmision: null,
+      urlVerificacion: null,
       checks: [
         {
           check: "texto_minimo",
@@ -193,6 +211,16 @@ export function analizarOpinion(texto: string, rfcCliente: string): AnalisisOpin
       : "No se pudo determinar el sentido (positivo/negativo/sin obligaciones).",
   });
 
+  // 4-bis) URL de verificación (la que codifica el QR de la opinión del SAT).
+  const urlVerificacion = extraerUrlVerificacion(limpio);
+  checks.push({
+    check: "url_qr",
+    ok: urlVerificacion !== null,
+    detalle: urlVerificacion !== null
+      ? `URL de verificación detectada (permite el cotejo en vivo del QR): ${urlVerificacion}`
+      : "No se detectó la URL del QR en el texto; puedes escanear el QR y pegar su URL para cotejar en vivo.",
+  });
+
   // 5) Veredicto.
   //   - Sin marcadores del SAT O RFC no coincide (habiéndose detectado) => NO_AUTENTICA.
   //   - Marcadores + RFC coincide + folio + sentido            => AUTENTICA (a ratificar en vivo).
@@ -223,6 +251,7 @@ export function analizarOpinion(texto: string, rfcCliente: string): AnalisisOpin
     folio,
     sentido,
     fechaEmision,
+    urlVerificacion,
     checks,
     resumen,
   };

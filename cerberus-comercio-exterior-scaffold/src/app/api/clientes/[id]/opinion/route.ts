@@ -35,6 +35,9 @@ const bodySchema = z.object({
   // Texto de la opinión (copiado/OCR del PDF impreso). Máx razonable ~256 KB.
   texto: z.string().trim().min(40, "Pega el texto completo de la opinión (mín. 40 caracteres)").max(262144),
   nombreArchivo: z.string().trim().max(256).optional(),
+  // URL del QR escaneado (opcional; si no viene, se intenta extraer del texto).
+  // Habilita el cotejo EN VIVO contra la página de verificación del SAT.
+  urlQr: z.string().trim().url("La URL del QR no es válida").max(2048).optional(),
 });
 
 type Params = { params: Promise<{ id: string }> };
@@ -143,7 +146,7 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
       { status: 400 },
     );
   }
-  const { texto, nombreArchivo } = parseado.data;
+  const { texto, nombreArchivo, urlQr } = parseado.data;
 
   let salida: ResultadoPost;
   try {
@@ -156,11 +159,14 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
 
       const analisis = analizarOpinion(texto, cliente.rfc);
 
-      // Cotejo en vivo ante el SAT por folio (NoOp → NO_DISPONIBLE).
+      // Cotejo EN VIVO: prioriza la URL del QR escaneada; si no, la extraída del
+      // texto. El verificador (Auto) coteja contra la página del SAT (dominio
+      // permitido) o el gateway configurado; si nada aplica → NO_DISPONIBLE.
       const cotejo = await obtenerVerificadorOpinion().cotejar({
         rfc: cliente.rfc,
         folio: analisis.folio,
         sentidoDeclarado: analisis.sentido,
+        urlVerificacion: urlQr ?? analisis.urlVerificacion,
       });
 
       const ts = new Date();

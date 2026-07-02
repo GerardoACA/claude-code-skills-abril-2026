@@ -144,9 +144,12 @@ export default async function OpinionPage({ params }: PageProps) {
         la <strong>opinión de cumplimiento impresa/PDF</strong>. Aquí se ingiere su
         texto y un validador automático analiza su <strong>autenticidad</strong>
         (marcadores del SAT, folio/acuse, RFC y sentido) para detectar documentos
-        falsos. El <strong>cotejo en vivo por folio ante el SAT</strong> —que no
-        requiere e.firma— ratifica de forma definitiva; hoy queda pendiente de
-        conexión (conector). C9: los veredictos alertan, no bloquean.
+        falsos. Además, toda opinión vigente trae un <strong>código QR</strong>: al
+        escanearlo y aportar su URL, CERBERUS hace el <strong>cotejo en vivo ante
+        el SAT</strong> —abre la página oficial (solo dominios del SAT) y compara
+        folio, RFC y sentido—. Ese cotejo, que no requiere e.firma, es el que
+        <strong> ratifica de forma definitiva</strong>. C9: los veredictos alertan,
+        no bloquean.
       </div>
 
       <section style={{ marginTop: "2rem" }}>
