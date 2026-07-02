@@ -97,6 +97,37 @@ enum Estado69b {
   CERRADO
 }
 
+/// Tipo de CFDI 4.0 emitido para el traslado de mercancías (Inc 13).
+enum TipoComprobante {
+  INGRESO
+  TRASLADO
+}
+
+/// Estado del ciclo de vida del CFDI (Inc 13). BORRADOR = capturado, validado
+/// y sellado localmente; TIMBRADO/CANCELADO/SUSTITUIDO los pondrá el PAC real.
+enum EstadoCfdi {
+  BORRADOR
+  TIMBRADO
+  CANCELADO
+  SUSTITUIDO
+}
+
+/// Complemento fiscal incorporado al CFDI (Inc 13).
+enum TipoComplemento {
+  NINGUNO
+  CARTA_PORTE_31
+  COMERCIO_EXT_11
+}
+
+/// Motivos de cancelación 01..04 del estándar CFDI 4.0 (decisión C8: la
+/// cancelación se modela desde el inicio).
+enum MotivoCancelacion {
+  M01
+  M02
+  M03
+  M04
+}
+
 // ============================================================================
 // Raíz multi-tenant
 // ============================================================================
@@ -131,6 +162,7 @@ model Tenant {
   bitacora                  BitacoraAuditoria[]
   verificaciones            VerificacionCumplimiento[]
   pasos                     PasoDespacho[]
+  comprobantes              ComprobanteCfdi[]
 
   @@map("tenant")
 }
@@ -413,6 +445,7 @@ model Operacion {
   pasos          PasoDespacho[]
   documentos     Documento[]
   eventos        BitacoraAuditoria[]
+  comprobantes   ComprobanteCfdi[]
 
   @@unique([tenantId, referencia])
   @@index([tenantId, estado])
@@ -712,4 +745,38 @@ model ListadoSatEntrada {
   @@index([rfc, fuente])
   @@index([razonSocial])
   @@map("listado_sat_entrada")
+}
+
+// ============================================================================
+// CFDI + Carta Porte 3.1 (Incremento 13) — captura, validación y sellado local
+// del comprobante; timbrado/cancelación detrás del conector TimbradorPac
+// (NoOp hoy → PAC real del cliente después). Decisión C8: la cancelación
+// (motivos 01-04) se modela desde el inicio.
+// ============================================================================
+
+/// CFDI de una operación con complemento (Carta Porte 3.1 / Comercio Ext 1.1).
+model ComprobanteCfdi {
+  id            String          @id @default(cuid())
+  tenantId      String          @map("tenant_id")
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  operacionId   String          @map("operacion_id")
+  operacion     Operacion       @relation(fields: [operacionId], references: [id], onDelete: Cascade)
+  tipo          TipoComprobante
+  complemento   TipoComplemento @default(NINGUNO)
+  estado        EstadoCfdi      @default(BORRADOR)
+  emisorRfc     String          @map("emisor_rfc")
+  receptorRfc   String          @map("receptor_rfc")
+  /// Datos capturados (incluido el complemento) como JSON canónico (string).
+  payload       String
+  sha256        String          @db.Char(64)
+  uuid          String?         // folio fiscal al timbrar (lo pondrá el PAC real)
+  motivoCancelacion MotivoCancelacion? @map("motivo_cancelacion")
+  sustituyeUuid String?         @map("sustituye_uuid")   // para motivo 01
+  detallePac    String?         @map("detalle_pac")      // respuesta/estado del conector
+  creadoEn      DateTime        @default(now()) @map("creado_en")
+  actualizadoEn DateTime        @updatedAt @map("actualizado_en")
+
+  @@index([tenantId, operacionId])
+  @@index([tenantId, estado])
+  @@map("comprobante_cfdi")
 }
