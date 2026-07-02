@@ -49,18 +49,43 @@ type ResultadoPost =
       opinion32d: { resultado: string; detalle: string };
     };
 
-/** Mapea veredicto + sentido + cotejo a la VerificacionCumplimiento OPINION_32D. */
+/** Mapea el sentido a resultado de cumplimiento (positivo = al corriente). */
+function porSentido(sentido: SentidoOpinion, nota: string): { resultado: string; detalle: string } {
+  switch (sentido) {
+    case "POSITIVA":
+    case "SIN_OBLIGACIONES":
+      return { resultado: "AL_CORRIENTE", detalle: `Opinión 32-D ${sentido}. ${nota}` };
+    case "NEGATIVA":
+    case "NO_INSCRITO":
+      return {
+        resultado: "ALERTA",
+        detalle: `Opinión 32-D ${sentido}. Alerta para revisión humana (C9). ${nota}`,
+      };
+    default:
+      return { resultado: "NO_DISPONIBLE", detalle: `Opinión sin sentido claro. ${nota}` };
+  }
+}
+
+/** Mapea veredicto + sentido + cotejo a la VerificacionCumplimiento OPINION_32D.
+ *  El cotejo EN VIVO tiene PRIORIDAD sobre la heurística de texto: una
+ *  confirmación (o discrepancia) del SAT manda sobre el análisis del documento. */
 function resultadoOpinion(
   veredicto: AnalisisOpinion["resultado"],
   sentido: SentidoOpinion,
   cotejo: EstadoCotejoSat,
 ): { resultado: string; detalle: string } {
+  // 1) El SAT confirmó el folio en vivo: es la prueba más fuerte.
+  if (cotejo === "CONFIRMADA") {
+    return porSentido(sentido, "Ratificada por cotejo EN VIVO ante el SAT.");
+  }
+  // 2) El SAT discrepa / no localiza el folio: alerta fuerte (posible falso).
   if (cotejo === "DISCREPANCIA") {
     return {
       resultado: "ALERTA",
-      detalle: "El cotejo en vivo ante el SAT discrepa de la opinión entregada. Revisión humana (C9).",
+      detalle: "El cotejo en vivo ante el SAT discrepa o no localiza el folio. Revisión humana (C9).",
     };
   }
+  // 3) Sin cotejo en vivo (NO_INTENTADO/NO_DISPONIBLE): decide el análisis textual.
   if (veredicto === "NO_AUTENTICA") {
     return {
       resultado: "ALERTA",
@@ -73,30 +98,11 @@ function resultadoOpinion(
       detalle: "La opinión entregada es sospechosa o no verificable. Revisión humana y cotejo en vivo.",
     };
   }
-  // veredicto AUTENTICA.
-  const nota =
-    cotejo === "CONFIRMADA"
-      ? "Ratificada por cotejo en vivo ante el SAT."
-      : "Cotejo en vivo ante el SAT pendiente (conector); veredicto por análisis del documento.";
-  switch (sentido) {
-    case "POSITIVA":
-    case "SIN_OBLIGACIONES":
-      return {
-        resultado: "AL_CORRIENTE",
-        detalle: `Opinión 32-D ${sentido} auténtica. ${nota}`,
-      };
-    case "NEGATIVA":
-    case "NO_INSCRITO":
-      return {
-        resultado: "ALERTA",
-        detalle: `Opinión 32-D ${sentido} (documento auténtico). Alerta para revisión humana (C9). ${nota}`,
-      };
-    default:
-      return {
-        resultado: "NO_DISPONIBLE",
-        detalle: `Opinión auténtica pero sin sentido claro. ${nota}`,
-      };
-  }
+  // veredicto AUTENTICA sin cotejo en vivo.
+  return porSentido(
+    sentido,
+    "Auténtica por análisis del documento; cotejo en vivo ante el SAT pendiente/no disponible.",
+  );
 }
 
 function actorDeSesion(session: unknown): string {
