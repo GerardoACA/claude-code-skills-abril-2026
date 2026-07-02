@@ -2,16 +2,18 @@
 
 // CERBERUS COMERCIO EXTERIOR — Form ingesta + validación de la opinión 32-D. NO es SIDF.
 // =============================================================================
-// Archivo:  src/components/OpinionUploadForm.tsx  (Incremento 22)
-// Propósito: Client component para INGESTAR el texto de la opinión de
-//            cumplimiento (32-D) que el cliente entrega impresa/PDF y ver el
-//            veredicto de autenticidad + el resultado del cotejo en vivo. El
-//            usuario pega el texto (o sube un .txt); el análisis y el cotejo
-//            ocurren en el servidor. Postea a /api/clientes/[id]/opinion.
+// Archivo:  src/components/OpinionUploadForm.tsx  (Incrementos 22/24)
+// Propósito: Client component para INGESTAR la opinión de cumplimiento (32-D) y
+//            ver el veredicto de autenticidad + el cotejo en vivo. El usuario
+//            puede: pegar el texto, y/o SUBIR UNA IMAGEN de la opinión/QR — el
+//            software DECODIFICA EL QR de la imagen (jsQR, en el navegador, sin
+//            cámara), obtiene la URL de verificación del SAT y la envía para el
+//            cotejo en vivo. Postea a /api/clientes/[id]/opinion.
 // =============================================================================
 
-import { useState, type ChangeEvent } from "react";
+import { useState, useRef, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
+import jsQR from "jsqr";
 
 export type OpinionUploadFormProps = { clienteId: string };
 
@@ -43,6 +45,68 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
   const [enviando, setEnviando] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<RespuestaOk | null>(null);
+  const [qrEstado, setQrEstado] = useState<string | null>(null);
+  const [decodificando, setDecodificando] = useState<boolean>(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Decodifica el QR de una imagen EN EL NAVEGADOR (sin cámara): la dibuja en un
+  // canvas, extrae los píxeles y los pasa a jsQR. Devuelve el contenido del QR
+  // (la URL de verificación del SAT) o null si no se detecta ninguno.
+  async function decodificarQrDeImagen(file: File): Promise<string | null> {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error("no-imagen"));
+        el.src = url;
+      });
+      // Escalar imágenes grandes (jsQR es más rápido y suficiente < ~1600 px).
+      const maxLado = 1600;
+      const escala = Math.min(1, maxLado / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * escala));
+      const h = Math.max(1, Math.round(img.naturalHeight * escala));
+      const canvas = canvasRef.current ?? document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(img, 0, 0, w, h);
+      const datos = ctx.getImageData(0, 0, w, h);
+      const codigo = jsQR(datos.data, w, h, { inversionAttempts: "attemptBoth" });
+      return codigo && codigo.data ? codigo.data.trim() : null;
+    } catch {
+      return null;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  async function alSeleccionarImagen(e: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    setQrEstado("Leyendo el código QR de la imagen…");
+    setDecodificando(true);
+    if (!nombreArchivo) setNombreArchivo(file.name);
+    try {
+      const contenido = await decodificarQrDeImagen(file);
+      if (contenido === null) {
+        setQrEstado(null);
+        setError("No se detectó ningún código QR en la imagen. Prueba con una foto más nítida o recorta el QR.");
+        return;
+      }
+      setUrlQr(contenido);
+      const esUrl = /^https?:\/\//i.test(contenido);
+      setQrEstado(
+        esUrl
+          ? `QR decodificado: ${contenido}`
+          : `QR decodificado (no es una URL): ${contenido}`,
+      );
+    } finally {
+      setDecodificando(false);
+    }
+  }
 
   async function alSeleccionarArchivo(e: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = e.target.files?.[0];
@@ -86,6 +150,7 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
       setTexto("");
       setUrlQr("");
       setNombreArchivo("");
+      setQrEstado(null);
       router.refresh();
     } catch {
       setError("Error de red al contactar el servidor.");
@@ -131,6 +196,34 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
         del cliente). Solo se abren URLs del dominio del SAT.
       </div>
 
+      {/* [Inc 24] Decodificación del QR desde una IMAGEN, sin cámara: el software
+          lee el QR de la foto/captura de la opinión y obtiene la URL del SAT. */}
+      <label htmlFor="op-imgqr" style={labelStyle}>
+        Sube una <strong>foto o captura</strong> de la opinión (o del QR): el software lo decodifica
+      </label>
+      <input
+        id="op-imgqr"
+        type="file"
+        accept="image/*"
+        disabled={enviando || decodificando}
+        onChange={(e) => void alSeleccionarImagen(e)}
+        style={inputStyle}
+      />
+      <canvas ref={canvasRef} style={{ display: "none" }} />
+      {qrEstado !== null && (
+        <p
+          style={{
+            margin: "0.4rem 0 0",
+            fontSize: "0.8rem",
+            color: "#065f46",
+            wordBreak: "break-all",
+          }}
+        >
+          {decodificando ? "⏳ " : "✓ "}
+          {qrEstado}
+        </p>
+      )}
+
       <label htmlFor="op-file" style={labelStyle}>
         Archivo de texto (.txt) o texto exportado del PDF
       </label>
@@ -171,12 +264,13 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
 
       <button
         type="button"
-        disabled={enviando || texto.trim().length < 40}
+        disabled={enviando || (texto.trim().length < 40 && urlQr.trim().length === 0)}
         onClick={() => void enviar()}
         style={{
           marginTop: "1rem",
           padding: "0.6rem 1.1rem",
-          background: enviando || texto.trim().length < 40 ? "#94a3b8" : "#2563eb",
+          background:
+            enviando || (texto.trim().length < 40 && urlQr.trim().length === 0) ? "#94a3b8" : "#2563eb",
           color: "#fff",
           border: "none",
           borderRadius: 8,

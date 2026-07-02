@@ -31,7 +31,8 @@ IMPORTANTE: CAMBIA EL SCHEMA (modelo `OpinionCumplimientoIngestada` + enums `Res
 
 2) rsync del scaffold al producto (exclusiones de siempre: .git, node_modules, .next, .env, .env*.local, .vercel, package-lock.json, _*.md, bootstrap-*.sh, docs, next-env.d.ts).
 
-3) cd al producto; `npm install`.
+3) cd al producto; `npm install` (instalará la nueva dependencia `jsqr` para
+   decodificar el QR desde imágenes en el navegador).
 
 4) MIGRACIÓN LOCAL:
    ```
@@ -79,7 +80,8 @@ IMPORTANTE: CAMBIA EL SCHEMA (modelo `OpinionCumplimientoIngestada` + enums `Res
    - **Inc 22 (opinión):** clic en "Ingerir opinión 32-D y validar autenticidad".
      a. Pega un texto que simule una opinión del SAT (incluye "Servicio de Administración Tributaria", "Opinión del cumplimiento", "32-D", un "Folio: ABC123456", el RFC del cliente y "Positivo") → veredicto **AUTENTICA**, folio y sentido extraídos, y OPINION_32D queda **AL_CORRIENTE**.
      b. Pega un texto sin marcadores del SAT o con otro RFC → **NO_AUTENTICA** → OPINION_32D **ALERTA**. Evento `OPINION_INGESTADA` en bitácora (encadenado), visible en el exporte.
-     c. **Cotejo por QR:** escanea el QR de una opinión real, pega su URL en el campo "URL del código QR" → CERBERUS abre la página del SAT y devuelve **CONFIRMADA** (o **DISCREPANCIA** si no coincide). Con una URL que no sea del SAT, responde **NO_DISPONIBLE** sin abrirla (anti-SSRF).
+     c. **Cotejo por QR (sin cámara):** sube una **foto o captura** de la opinión (o del QR) en el campo "Sube una foto…" → el software **decodifica el QR en el navegador** (jsQR), rellena la URL del SAT y, al ingerir, **abre la página del SAT** y devuelve **CONFIRMADA** (o **DISCREPANCIA** si no coincide). También puedes pegar la URL a mano. Con una URL que no sea del SAT, responde **NO_DISPONIBLE** sin abrirla (anti-SSRF).
+     d. **Solo QR:** puedes ingerir aportando únicamente el QR/URL (sin pegar texto): el veredicto y el sentido salen del cotejo en vivo del SAT.
    - **Inc 23 (IMMEX):** en el mismo cliente → "Saldos IMMEX (ERP)" → se ve la explicación del "para qué" y, como el ERP no está conectado (NoOp), el bloque "ERP del cliente no conectado" pidiendo qué ERP usa. (Cuando se defina `ERP_PROVIDER` y su adaptador, la misma pantalla mostrará los saldos con semáforo.)
    Dame un resumen corto y la URL.
 

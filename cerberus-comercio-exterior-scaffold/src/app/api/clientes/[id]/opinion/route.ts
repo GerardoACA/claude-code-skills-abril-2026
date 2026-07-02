@@ -31,14 +31,20 @@ import { obtenerVerificadorOpinion, type EstadoCotejoSat } from "@/lib/verificad
 
 export const runtime = "nodejs";
 
-const bodySchema = z.object({
-  // Texto de la opinión (copiado/OCR del PDF impreso). Máx razonable ~256 KB.
-  texto: z.string().trim().min(40, "Pega el texto completo de la opinión (mín. 40 caracteres)").max(262144),
-  nombreArchivo: z.string().trim().max(256).optional(),
-  // URL del QR escaneado (opcional; si no viene, se intenta extraer del texto).
-  // Habilita el cotejo EN VIVO contra la página de verificación del SAT.
-  urlQr: z.string().trim().url("La URL del QR no es válida").max(2048).optional(),
-});
+const bodySchema = z
+  .object({
+    // Texto de la opinión (copiado/OCR del PDF impreso). Opcional si se aporta la
+    // URL del QR (flujo "solo QR": el software decodifica el QR de una imagen y
+    // coteja en vivo sin necesidad del texto completo).
+    texto: z.string().trim().max(262144).optional(),
+    nombreArchivo: z.string().trim().max(256).optional(),
+    // URL del QR (decodificada en el navegador desde una imagen, o escaneada).
+    // Habilita el cotejo EN VIVO contra la página de verificación del SAT.
+    urlQr: z.string().trim().url("La URL del QR no es válida").max(2048).optional(),
+  })
+  .refine((d) => (d.texto !== undefined && d.texto.length >= 40) || d.urlQr !== undefined, {
+    message: "Aporta el texto de la opinión (mín. 40 caracteres) o la URL del QR.",
+  });
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -47,10 +53,34 @@ type ResultadoPost =
   | {
       tipo: "ok";
       opinionId: string;
-      analisis: AnalisisOpinion;
+      veredicto: AnalisisOpinion["resultado"];
+      resumen: string;
+      checks: AnalisisOpinion["checks"];
+      extraido: {
+        rfc: string | null;
+        folio: string | null;
+        sentido: SentidoOpinion;
+        fechaEmision: string | null;
+      };
       cotejo: { estado: EstadoCotejoSat; detalle: string };
       opinion32d: { resultado: string; detalle: string };
     };
+
+/** Normaliza un sentido reportado por el SAT al enum SentidoOpinion. */
+function aSentidoOpinion(valor: string | null | undefined): SentidoOpinion {
+  switch ((valor ?? "").toUpperCase()) {
+    case "POSITIVA":
+      return "POSITIVA";
+    case "NEGATIVA":
+      return "NEGATIVA";
+    case "SIN_OBLIGACIONES":
+      return "SIN_OBLIGACIONES";
+    case "NO_INSCRITO":
+      return "NO_INSCRITO";
+    default:
+      return "INDETERMINADO";
+  }
+}
 
 /** Mapea el sentido a resultado de cumplimiento (positivo = al corriente). */
 function porSentido(sentido: SentidoOpinion, nota: string): { resultado: string; detalle: string } {
@@ -157,17 +187,35 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
       });
       if (!cliente) return { tipo: "no-cliente" };
 
-      const analisis = analizarOpinion(texto, cliente.rfc);
+      // Análisis textual solo si hay texto suficiente; si es flujo "solo QR",
+      // no hay texto y el veredicto proviene del cotejo en vivo.
+      const hayTexto = texto !== undefined && texto.length >= 40;
+      const analisis = hayTexto ? analizarOpinion(texto, cliente.rfc) : null;
+      const textoOriginal = hayTexto
+        ? texto
+        : `(Verificación por QR sin texto de opinión). URL: ${urlQr ?? "—"}`;
+      const urlParaCotejo = urlQr ?? analisis?.urlVerificacion ?? null;
 
-      // Cotejo EN VIVO: prioriza la URL del QR escaneada; si no, la extraída del
-      // texto. El verificador (Auto) coteja contra la página del SAT (dominio
-      // permitido) o el gateway configurado; si nada aplica → NO_DISPONIBLE.
+      // Cotejo EN VIVO: prioriza la URL del QR (decodificada de la imagen o
+      // escaneada); si no, la extraída del texto. El verificador (Auto) coteja
+      // contra la página del SAT (dominio permitido) o el gateway configurado.
       const cotejo = await obtenerVerificadorOpinion().cotejar({
         rfc: cliente.rfc,
-        folio: analisis.folio,
-        sentidoDeclarado: analisis.sentido,
-        urlVerificacion: urlQr ?? analisis.urlVerificacion,
+        folio: analisis?.folio ?? null,
+        sentidoDeclarado: analisis?.sentido ?? "INDETERMINADO",
+        urlVerificacion: urlParaCotejo,
       });
+
+      // Sentido efectivo: el del documento si se detectó; si no, el que reportó
+      // el SAT en el cotejo (clave para el flujo "solo QR").
+      const sentidoEfectivo: SentidoOpinion =
+        analisis && analisis.sentido !== "INDETERMINADO"
+          ? analisis.sentido
+          : aSentidoOpinion(cotejo.sentidoSat);
+      const veredicto = analisis?.resultado ?? "NO_VERIFICABLE";
+      const huella = analisis?.sha256 ?? sha256(textoOriginal);
+      const resumen = analisis?.resumen ?? "Verificación por QR (sin análisis de texto).";
+      const checks = analisis?.checks ?? [];
 
       const ts = new Date();
       const opinion = await tx.opinionCumplimientoIngestada.create({
@@ -175,14 +223,14 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
           tenantId,
           clienteId: cliente.id,
           nombreArchivo: nombreArchivo ?? null,
-          sha256: analisis.sha256,
-          textoOriginal: texto,
-          rfcDocumento: analisis.rfcDocumento,
-          folio: analisis.folio,
-          sentido: analisis.sentido,
-          fechaEmision: analisis.fechaEmision ? new Date(analisis.fechaEmision) : null,
-          resultado: analisis.resultado,
-          observaciones: JSON.stringify({ resumen: analisis.resumen, checks: analisis.checks }),
+          sha256: huella,
+          textoOriginal,
+          rfcDocumento: analisis?.rfcDocumento ?? null,
+          folio: analisis?.folio ?? null,
+          sentido: sentidoEfectivo,
+          fechaEmision: analisis?.fechaEmision ? new Date(analisis.fechaEmision) : null,
+          resultado: veredicto,
+          observaciones: JSON.stringify({ resumen, checks, urlCotejo: urlParaCotejo }),
           cotejoEnVivo: cotejo.estado,
           cotejoDetalle: cotejo.detalle,
           actor,
@@ -191,7 +239,7 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
         select: { id: true },
       });
 
-      const opinion32d = resultadoOpinion(analisis.resultado, analisis.sentido, cotejo.estado);
+      const opinion32d = resultadoOpinion(veredicto, sentidoEfectivo, cotejo.estado);
       await tx.verificacionCumplimiento.create({
         data: {
           tenantId,
@@ -204,7 +252,7 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
             | "INHABILITADO_PRESUNTO"
             | "INHABILITADO_DEFINITIVO",
           detalle: opinion32d.detalle,
-          snapshotSha256: analisis.sha256,
+          snapshotSha256: huella,
           consultadoEn: ts,
         },
         select: { id: true },
@@ -221,9 +269,9 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
         actor,
         clienteId: cliente.id,
         opinionId: opinion.id,
-        opinionSha256: analisis.sha256,
-        veredicto: analisis.resultado,
-        folio: analisis.folio,
+        opinionSha256: huella,
+        veredicto,
+        folio: analisis?.folio ?? null,
         cotejo: cotejo.estado,
         creadoEn: ts.toISOString(),
         hashPrev,
@@ -233,7 +281,7 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
           tenantId,
           actor,
           accion: "OPINION_INGESTADA",
-          payloadRef: `opinion:${opinion.id}:cliente:${cliente.id}:${analisis.resultado}`,
+          payloadRef: `opinion:${opinion.id}:cliente:${cliente.id}:${veredicto}`,
           sha256: sha256(payloadEvento),
           hashPrev,
           creadoEn: ts,
@@ -244,7 +292,15 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
       return {
         tipo: "ok",
         opinionId: opinion.id,
-        analisis,
+        veredicto,
+        resumen,
+        checks,
+        extraido: {
+          rfc: analisis?.rfcDocumento ?? null,
+          folio: analisis?.folio ?? null,
+          sentido: sentidoEfectivo,
+          fechaEmision: analisis?.fechaEmision ?? null,
+        },
         cotejo: { estado: cotejo.estado, detalle: cotejo.detalle },
         opinion32d,
       };
@@ -267,15 +323,10 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
     {
       ok: true,
       opinionId: salida.opinionId,
-      veredicto: salida.analisis.resultado,
-      resumen: salida.analisis.resumen,
-      checks: salida.analisis.checks,
-      extraido: {
-        rfc: salida.analisis.rfcDocumento,
-        folio: salida.analisis.folio,
-        sentido: salida.analisis.sentido,
-        fechaEmision: salida.analisis.fechaEmision,
-      },
+      veredicto: salida.veredicto,
+      resumen: salida.resumen,
+      checks: salida.checks,
+      extraido: salida.extraido,
       cotejo: salida.cotejo,
       opinion32d: salida.opinion32d,
     },

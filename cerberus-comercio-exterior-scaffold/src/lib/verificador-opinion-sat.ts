@@ -44,6 +44,9 @@ export interface ResultadoCotejo {
   readonly ok: boolean;
   readonly estado: EstadoCotejoSat;
   readonly detalle: string;
+  /** Sentido que reportó el SAT (si se pudo determinar); útil en cotejo por QR
+   *  cuando no se ingestó texto de la opinión. */
+  readonly sentidoSat?: string | null;
 }
 
 /** Contrato del conector de cotejo en vivo (Strategy enchufable). */
@@ -192,6 +195,7 @@ export class VerificadorOpinionSatQr implements VerificadorOpinionSat {
           ok: true,
           estado: "DISCREPANCIA",
           detalle: `El SAT muestra sentido ${delSat}, distinto al del documento (${declarado}).`,
+          sentidoSat: delSat,
         };
       }
 
@@ -204,6 +208,7 @@ export class VerificadorOpinionSatQr implements VerificadorOpinionSat {
         detalle:
           `El SAT confirma la opinión vía QR (coincide ${coincidencias}` +
           `${delSat ? `, sentido ${delSat}` : ""}).`,
+        sentidoSat: delSat,
       };
     } catch (e) {
       const abortado = e instanceof Error && e.name === "AbortError";
@@ -302,12 +307,14 @@ export class VerificadorOpinionSatHttp implements VerificadorOpinionSat {
           ok: true,
           estado: "DISCREPANCIA",
           detalle: resp.detalle ?? `El SAT reporta sentido "${resp.sentido}", distinto al del documento.`,
+          sentidoSat: delSat,
         };
       }
       return {
         ok: true,
         estado: "CONFIRMADA",
         detalle: resp.detalle ?? `El SAT confirma el folio${resp.sentido ? ` (sentido ${resp.sentido})` : ""}.`,
+        sentidoSat: delSat,
       };
     } catch (e) {
       const abortado = e instanceof Error && e.name === "AbortError";
