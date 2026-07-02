@@ -44,3 +44,14 @@ una entidad más general **`VerificacionCumplimiento`** por cliente/proveedor co
 - [ ] Ampliar la verificación del incremento 3 (hoy stub de 69-B) a este conjunto completo.
 - [ ] Modelo `VerificacionCumplimiento` en el schema (siguiente iteración).
 - [ ] Integración real con fuentes SAT/DOF + opinión de cumplimiento.
+
+## Requisito adicional del cliente (2-jul-2026): ingesta manual + sanciones internacionales
+1. **Ingesta manual de listados:** aunque una fuente no tenga URL pública estable (p. ej. 69-B Bis
+   —que SÍ se publica—, 49 Bis), el sistema SIEMPRE debe permitir subir/ingestar el archivo
+   manualmente (CSV), con el mismo tratamiento probatorio: sha256 del archivo + fecha + origen
+   marcado como MANUAL.
+2. **Listas de autoridades internacionales:** misma mecánica (sync o manual) para listados de
+   sujetos sancionados con quienes no se pueden celebrar operaciones comerciales (OFAC/SDN, ONU,
+   UE, UK, etc.). Nota técnica: estas listas identifican por NOMBRE (no RFC) → el cotejo por
+   nombre es heurístico y debe producir ALERTA con revisión humana, nunca inhabilitación
+   automática (C9 reforzado).
