@@ -29,6 +29,7 @@ import { canonicalizar } from "@/lib/probatoria/hash-chain";
 import { analizarOpinion, type AnalisisOpinion, type SentidoOpinion } from "@/lib/validador-opinion";
 import { obtenerVerificadorOpinion, type EstadoCotejoSat } from "@/lib/verificador-opinion-sat";
 import { certificadosEmisor, verificarSelloOpinion } from "@/lib/sello-opinion";
+import { descargarCertificadoSat } from "@/lib/cert-sat-rccf";
 import { extractText, getDocumentProxy } from "unpdf";
 
 export const runtime = "nodejs";
@@ -80,7 +81,20 @@ async function cotejarOpinion(
   const urlLive = urlQr ?? analisis?.urlVerificacion ?? null;
 
   if (analisis && analisis.cadenaOriginal && analisis.selloBase64) {
+    // Certificados candidatos: los configurados por entorno + (SAT) el
+    // descargado AUTOMÁTICAMENTE del repositorio RCCF por el número de serie que
+    // trae la propia cadena. Así el cotejo criptográfico del SAT no requiere
+    // configuración manual.
     const certs = certificadosEmisor(analisis.emisor);
+    let fuenteAuto = false;
+    if (analisis.emisor === "SAT" && analisis.serieCertificado) {
+      const auto = await descargarCertificadoSat(analisis.serieCertificado);
+      if (auto) {
+        certs.push(auto);
+        fuenteAuto = true;
+      }
+    }
+
     if (certs.length > 0) {
       for (const cert of certs) {
         const r = verificarSelloOpinion({
@@ -89,9 +103,13 @@ async function cotejarOpinion(
           certificado: cert,
         });
         if (r.valido) {
+          const nota =
+            fuenteAuto && analisis.serieCertificado
+              ? ` (certificado del SAT descargado del repositorio RCCF, serie ${analisis.serieCertificado})`
+              : "";
           return {
             estado: "CONFIRMADA",
-            detalle: `Cotejo criptográfico (${analisis.emisor}): ${r.detalle}`,
+            detalle: `Cotejo criptográfico (${analisis.emisor}): ${r.detalle}${nota}`,
             sentidoSat: analisis.sentido,
           };
         }
@@ -102,7 +120,9 @@ async function cotejarOpinion(
         sentidoSat: analisis.sentido,
       };
     }
-    // Sello presente pero sin certificado configurado: intentar cotejo en vivo.
+
+    // Sin certificado disponible (ni configurado ni descargable): intentar cotejo
+    // en vivo; si tampoco, dejar la autenticidad estructural con nota honesta.
     const live = await obtenerVerificadorOpinion().cotejar({
       rfc: rfcCliente,
       folio: analisis.folio,
@@ -110,9 +130,13 @@ async function cotejarOpinion(
       urlVerificacion: urlLive,
     });
     if (live.estado === "CONFIRMADA" || live.estado === "DISCREPANCIA") return live;
+    const notaCert =
+      analisis.emisor === "SAT"
+        ? "No se pudo descargar el certificado del SAT (RCCF) para el cotejo criptográfico automático; "
+        : `Falta el certificado público del emisor (define ${analisis.emisor}_OPINION_CERT); `;
     return {
       estado: "NO_DISPONIBLE",
-      detalle: `Sello digital ${analisis.emisor} presente, pero falta el certificado público del emisor (define ${analisis.emisor}_OPINION_CERT) para el cotejo criptográfico. La autenticidad estructural (cadena original + sello) sí está confirmada.`,
+      detalle: `${notaCert}la autenticidad estructural (cadena original + sello) sí está confirmada.`,
     };
   }
 

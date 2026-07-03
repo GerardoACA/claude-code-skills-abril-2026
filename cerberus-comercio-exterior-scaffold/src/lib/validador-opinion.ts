@@ -57,6 +57,8 @@ export interface AnalisisOpinion {
   readonly cadenaOriginal: string | null;
   /** Sello digital en base64 (firma del emisor), si se detectó. */
   readonly selloBase64: string | null;
+  /** Serie (20 dígitos) del certificado firmante (SAT); permite auto-descargarlo del RCCF. */
+  readonly serieCertificado: string | null;
   readonly checks: readonly CheckOpinion[];
   readonly resumen: string;
 }
@@ -155,6 +157,14 @@ interface Campos {
   folio: string | null;
   sentido: SentidoOpinion;
   fecha: string | null;
+  /** Número de serie (20 dígitos) del certificado que firmó el acuse (SAT). */
+  serie: string | null;
+}
+
+/** Extrae el número de serie del certificado (20 dígitos) de la cadena. */
+function extraerSerie(cadena: string): string | null {
+  const m = cadena.match(/\b(\d{20})\b/);
+  return m ? m[1] : null;
 }
 
 /** Parsea la cadena original del SAT: ||RFC|FOLIO|DD-MM-YYYY|SENTIDO||SERIE||. */
@@ -162,12 +172,13 @@ function parseCadenaSat(cadena: string): Campos {
   const m = cadena.match(
     /\|\|\s*([A-ZÑ&]{3,4}\d{6}[A-Z0-9]{2,3})\s*\|\s*([A-Z0-9]{5,})\s*\|\s*(\d{2}-\d{2}-\d{4})\s*\|\s*([A-Za-z]+)\s*\|/i,
   );
-  if (!m) return { rfc: null, folio: null, sentido: "INDETERMINADO", fecha: null };
+  if (!m) return { rfc: null, folio: null, sentido: "INDETERMINADO", fecha: null, serie: extraerSerie(cadena) };
   return {
     rfc: m[1].toUpperCase(),
     folio: m[2].toUpperCase(),
     sentido: mapSentido(m[4]),
     fecha: fechaDdMmYyyy(m[3]),
+    serie: extraerSerie(cadena),
   };
 }
 
@@ -186,6 +197,8 @@ function parseCadenaImss(cadena: string): Campos {
       const f = val("Fecha") ?? val("FechaInicioVigencia");
       return f ? fechaEspanol(f) : null;
     })(),
+    // El IMSS no expone una serie de certificado pública/descargable.
+    serie: null,
   };
 }
 
@@ -216,6 +229,7 @@ export function analizarOpinion(texto: string, rfcCliente: string): AnalisisOpin
       urlVerificacion: null,
       cadenaOriginal: null,
       selloBase64: null,
+      serieCertificado: null,
       checks: [{ check: "texto_minimo", ok: false, detalle: "Texto insuficiente para analizar." }],
       resumen: "No verificable: texto insuficiente.",
     };
@@ -228,7 +242,7 @@ export function analizarOpinion(texto: string, rfcCliente: string): AnalisisOpin
   const urlVerificacion = extraerUrlVerificacion(limpio);
 
   // Campos autoritativos desde la cadena original (si existe).
-  let cad: Campos = { rfc: null, folio: null, sentido: "INDETERMINADO", fecha: null };
+  let cad: Campos = { rfc: null, folio: null, sentido: "INDETERMINADO", fecha: null, serie: null };
   if (cadenaOriginal) {
     cad = emisor === "IMSS" ? parseCadenaImss(cadenaOriginal) : parseCadenaSat(cadenaOriginal);
     // Si el parseo por emisor no dio RFC, intentar el otro formato.
@@ -317,7 +331,8 @@ export function analizarOpinion(texto: string, rfcCliente: string): AnalisisOpin
 
   return {
     resultado, sha256: huella, emisor, rfcDocumento: rfcDoc, folio, sentido,
-    fechaEmision, urlVerificacion, cadenaOriginal, selloBase64, checks, resumen,
+    fechaEmision, urlVerificacion, cadenaOriginal, selloBase64,
+    serieCertificado: cad.serie, checks, resumen,
   };
 }
 
