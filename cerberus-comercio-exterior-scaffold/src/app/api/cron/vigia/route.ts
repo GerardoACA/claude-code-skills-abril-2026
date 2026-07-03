@@ -33,6 +33,7 @@ import {
 import { barridoVigia, type ResumenBarrido } from "@/lib/vigia-barrido";
 import { barridoVigencias, type ResumenVigencias } from "@/lib/vigia-vigencias";
 import { obtenerNotificador, type ResultadoNotificacion } from "@/lib/notificador";
+import { despacharAvisos, type ResultadoDespacho } from "@/lib/despacho-notificaciones";
 
 export const runtime = "nodejs";
 // Sincronizar listados grandes + barrer todos los tenants puede tardar: tope Vercel.
@@ -46,6 +47,8 @@ type RespuestaVigia = {
   barrido: ResumenBarrido;
   vigencias: { tenants: number; vencidos: number; porVencer: number };
   notificacion: ResultadoNotificacion;
+  /** Enrutado a destinatarios por cliente (CEO/CFO/OCN…) suscritos por módulo. */
+  despacho: ResultadoDespacho;
 };
 
 // -----------------------------------------------------------------------------
@@ -107,11 +110,16 @@ export async function GET(request: Request): Promise<NextResponse> {
       ? { ok: false, canal: "NINGUNO", detalle: "Sin novedades: no se envió notificación." }
       : await obtenerNotificador().enviar(mensaje);
 
+  // 5) Enrutado ESPECÍFICO: cada aviso va a los destinatarios del cliente
+  //    (CEO/CFO/OCN…) suscritos a esa categoría de módulo (Inc 36).
+  const despacho = await despacharAvisos(prisma, [...barrido.avisos, ...vigencias.avisos]);
+
   const respuesta: RespuestaVigia = {
     sync,
     barrido,
     vigencias: { tenants: vigencias.tenants, vencidos: vigencias.vencidos, porVencer: vigencias.porVencer },
     notificacion,
+    despacho,
   };
   return NextResponse.json(respuesta, { status: 200 });
 }

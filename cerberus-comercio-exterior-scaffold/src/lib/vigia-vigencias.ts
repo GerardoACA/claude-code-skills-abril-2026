@@ -15,9 +15,12 @@ import type { PrismaClient, Prisma } from "@prisma/client";
 import { withTenant, listarTenantIds } from "@/lib/tenant-context";
 import { sha256 } from "@/lib/probatoria/hash";
 import { clasificarVigencia, ordenUrgencia, type EstadoVigencia } from "@/lib/vigencias";
+import type { AvisoTenant } from "@/lib/despacho-notificaciones";
 
 export interface ItemVencimiento {
   readonly tenantId: string;
+  /** Cliente asociado (opinión/encargo); null para ítems del tenant (contrato/documento). */
+  readonly clienteId: string | null;
   readonly tipo: string;
   readonly referencia: string;
   readonly contexto: string;
@@ -31,6 +34,8 @@ export interface ResumenVigencias {
   vencidos: number;
   porVencer: number;
   items: ItemVencimiento[];
+  /** Avisos a enrutar a destinatarios suscritos a VIGENCIAS (Inc 36). */
+  avisos: AvisoTenant[];
 }
 
 function canonical(obj: Record<string, unknown>): string {
@@ -46,21 +51,21 @@ async function reunirVencimientos(
   const [opiniones, encargos, contratos, documentos] = await Promise.all([
     tx.opinionCumplimientoIngestada.findMany({
       where: { vigenciaHasta: { not: null } },
-      select: { folio: true, sentido: true, vigenciaHasta: true, cliente: { select: { razonSocial: true } } },
+      select: { clienteId: true, folio: true, sentido: true, vigenciaHasta: true, cliente: { select: { razonSocial: true } } },
     }),
     tx.encargoConferido.findMany({
       where: { vigenciaFin: { not: null } },
-      select: { tipo: true, estado: true, vigenciaFin: true, cliente: { select: { razonSocial: true } } },
+      select: { clienteId: true, tipo: true, estado: true, vigenciaFin: true, cliente: { select: { razonSocial: true } } },
     }),
     tx.contratoEncargo.findMany({ where: { vigenteHasta: { not: null } }, select: { version: true, vigenteHasta: true } }),
     tx.documento.findMany({ where: { vence: { not: null } }, select: { tipo: true, vence: true }, take: 300 }),
   ]);
 
-  const crudos: { tipo: string; referencia: string; contexto: string; vence: Date | null }[] = [
-    ...opiniones.map((o) => ({ tipo: "Opinión 32-D", referencia: o.folio ?? "(sin folio)", contexto: `${o.cliente.razonSocial} · ${o.sentido}`, vence: o.vigenciaHasta })),
-    ...encargos.map((e) => ({ tipo: `Encargo ${e.tipo}`, referencia: e.estado, contexto: e.cliente.razonSocial, vence: e.vigenciaFin })),
-    ...contratos.map((c) => ({ tipo: "Contrato de encargo", referencia: c.version, contexto: "Tenant", vence: c.vigenteHasta })),
-    ...documentos.map((d) => ({ tipo: "Documento", referencia: d.tipo, contexto: "—", vence: d.vence })),
+  const crudos: { clienteId: string | null; tipo: string; referencia: string; contexto: string; vence: Date | null }[] = [
+    ...opiniones.map((o) => ({ clienteId: o.clienteId, tipo: "Opinión 32-D", referencia: o.folio ?? "(sin folio)", contexto: `${o.cliente.razonSocial} · ${o.sentido}`, vence: o.vigenciaHasta })),
+    ...encargos.map((e) => ({ clienteId: e.clienteId, tipo: `Encargo ${e.tipo}`, referencia: e.estado, contexto: e.cliente.razonSocial, vence: e.vigenciaFin })),
+    ...contratos.map((c) => ({ clienteId: null, tipo: "Contrato de encargo", referencia: c.version, contexto: "Tenant", vence: c.vigenteHasta })),
+    ...documentos.map((d) => ({ clienteId: null, tipo: "Documento", referencia: d.tipo, contexto: "—", vence: d.vence })),
   ];
 
   const items: ItemVencimiento[] = [];
@@ -69,6 +74,7 @@ async function reunirVencimientos(
     if (cl.estado === "VENCIDO" || cl.estado === "POR_VENCER") {
       items.push({
         tenantId,
+        clienteId: r.clienteId,
         tipo: r.tipo,
         referencia: r.referencia,
         contexto: r.contexto,
@@ -111,7 +117,7 @@ async function registrarEventoVigencias(
 
 /** Barrido de vencimientos multi-tenant. `ahora` inyectable para pruebas. */
 export async function barridoVigencias(prisma: PrismaClient, ahora: Date = new Date()): Promise<ResumenVigencias> {
-  const resumen: ResumenVigencias = { tenants: 0, vencidos: 0, porVencer: 0, items: [] };
+  const resumen: ResumenVigencias = { tenants: 0, vencidos: 0, porVencer: 0, items: [], avisos: [] };
   // `tenant` tiene FORCE RLS → se enumeran por la función SECURITY DEFINER.
   const tenantIds = await listarTenantIds(prisma);
 
@@ -128,6 +134,20 @@ export async function barridoVigencias(prisma: PrismaClient, ahora: Date = new D
       resumen.items.push(...items);
       resumen.vencidos += items.filter((i) => i.estado === "VENCIDO").length;
       resumen.porVencer += items.filter((i) => i.estado === "POR_VENCER").length;
+      // Inc 36: enruta cada vencimiento ligado a un cliente a sus destinatarios
+      // suscritos a VIGENCIAS (los de tenant, sin clienteId, quedan en el resumen).
+      for (const it of items) {
+        if (it.clienteId !== null) {
+          const dias = it.diasRestantes === null ? "" : ` (${it.diasRestantes}d)`;
+          const icono = it.estado === "VENCIDO" ? "⛔" : "⏳";
+          resumen.avisos.push({
+            tenantId: it.tenantId,
+            clienteId: it.clienteId,
+            categoria: "VIGENCIAS",
+            texto: `${icono} ${it.tipo} ${it.referencia} — ${it.contexto}${dias}`,
+          });
+        }
+      }
     } catch (error) {
       console.error(`[vigia-vigencias] fallo el barrido del tenant ${tenantId}:`, error);
     }

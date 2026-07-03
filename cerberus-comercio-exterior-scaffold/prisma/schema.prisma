@@ -167,6 +167,7 @@ model Tenant {
   efirmasEntregadas         EfirmaEntregada[]
   opinionesCumplimiento     OpinionCumplimientoIngestada[]
   pedimentos                Pedimento[]
+  destinatarios             Destinatario[]
 
   @@map("tenant")
 }
@@ -243,6 +244,7 @@ model Cliente {
   overrides            OverrideAlerta[]
   efirmasEntregadas    EfirmaEntregada[]
   opinionesCumplimiento OpinionCumplimientoIngestada[]
+  destinatarios        Destinatario[]
 
   @@unique([tenantId, rfc])
   @@index([tenantId, estadoCsd])
@@ -1014,4 +1016,39 @@ model OpinionCumplimientoIngestada {
 
   @@index([tenantId, clienteId])
   @@map("opinion_cumplimiento_ingestada")
+}
+
+// ============================================================================
+// Destinatarios de notificaciones (Incremento 36) — por CLIENTE, los actores
+// (CEO, CFO, OCN, operaciones, legal…) que reciben avisos, con su canal
+// (Telegram/correo), su dirección (chat id / correo) y las CATEGORÍAS de módulo
+// a las que están suscritos. El vigía y los eventos del sistema enrutan cada
+// aviso a los destinatarios del cliente suscritos a esa categoría.
+//
+// `categorias` es un arreglo de texto (catálogo en src/lib/notificaciones-catalogo.ts):
+// CUMPLIMIENTO, VIGENCIAS, OPINION_32D, DESPACHO, KYC, SANCIONES. `canal` y
+// `cargo` también se validan contra ese catálogo a nivel de aplicación.
+// ============================================================================
+model Destinatario {
+  id            String   @id @default(cuid())
+  tenantId      String   @map("tenant_id")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clienteId     String   @map("cliente_id")
+  cliente       Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  nombre        String
+  /// Cargo/rol del actor (CEO, CFO, OCN, OPERACIONES, LEGAL, OTRO).
+  cargo         String
+  /// Canal de envío (TELEGRAM | EMAIL).
+  canal         String
+  /// Dirección del canal: chat id de Telegram o correo electrónico.
+  direccion     String
+  /// Categorías de módulo suscritas (texto; catálogo a nivel de app).
+  categorias    String[]
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  @@index([tenantId, clienteId])
+  @@map("destinatario")
 }

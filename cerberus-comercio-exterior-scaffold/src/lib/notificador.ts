@@ -91,6 +91,23 @@ export class NotificadorTelegram implements Notificador {
 
 export const notificadorPorDefecto: Notificador = new NotificadorNoOp();
 
+// -----------------------------------------------------------------------------
+// Envío a un chat id ESPECÍFICO (Inc 36): para notificar a un destinatario
+// concreto (CEO/CFO/OCN…) con su propio chat de Telegram, reutilizando el bot
+// del sistema (TELEGRAM_BOT_TOKEN). Fail-safe; NoOp honesto si no hay token.
+// -----------------------------------------------------------------------------
+export async function enviarTelegramA(
+  chatId: string,
+  texto: string,
+  timeoutMs = 10000,
+): Promise<ResultadoNotificacion> {
+  const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  if (!token) {
+    return { ok: false, canal: "NINGUNO", detalle: "TELEGRAM_BOT_TOKEN no configurado." };
+  }
+  return new NotificadorTelegram({ token, chatId, timeoutMs }).enviar(texto);
+}
+
 /** Devuelve el notificador activo. Telegram si hay token+chat; si no, NoOp. */
 export function obtenerNotificador(): Notificador {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();

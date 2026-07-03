@@ -42,6 +42,7 @@ import {
   type ResultadoVerificacion,
 } from "@/lib/verificacion-cumplimiento";
 import { sha256 } from "@/lib/probatoria/hash";
+import type { AvisoTenant } from "@/lib/despacho-notificaciones";
 
 // -----------------------------------------------------------------------------
 // Tipos públicos (firma EXACTA del blueprint del Incremento 11).
@@ -59,6 +60,8 @@ export interface ResumenBarrido {
     de: string;
     a: string;
   }[];
+  /** Avisos a enrutar a destinatarios suscritos a CUMPLIMIENTO (Inc 36). */
+  avisos: AvisoTenant[];
 }
 
 /** Detalle de una alerta emitida (elemento de ResumenBarrido.detalles). */
@@ -252,6 +255,7 @@ export async function barridoVigia(prisma: PrismaClient): Promise<ResumenBarrido
     clientes: 0,
     alertas: 0,
     detalles: [],
+    avisos: [],
   };
 
   // Ids de todos los tenants. La tabla `tenant` tiene FORCE RLS, así que se
@@ -296,6 +300,16 @@ export async function barridoVigia(prisma: PrismaClient): Promise<ResumenBarrido
       resumen.clientes += resumenTenant.clientes;
       resumen.alertas += resumenTenant.detalles.length;
       resumen.detalles.push(...resumenTenant.detalles);
+      // Inc 36: un aviso por empeoramiento, para enrutar a los destinatarios del
+      // cliente suscritos a CUMPLIMIENTO.
+      for (const d of resumenTenant.detalles) {
+        resumen.avisos.push({
+          tenantId: d.tenantId,
+          clienteId: d.clienteId,
+          categoria: "CUMPLIMIENTO",
+          texto: `⚠️ ${d.rfc} · ${d.fuente}: ${d.de} → ${d.a}`,
+        });
+      }
     } catch (error) {
       // Un tenant que falla (p. ej. su transacción se revierte) no aborta el
       // barrido de los demás.

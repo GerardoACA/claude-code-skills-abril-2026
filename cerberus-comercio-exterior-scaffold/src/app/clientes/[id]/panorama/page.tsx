@@ -262,6 +262,7 @@ export default async function PanoramaPage({ params }: { params: Promise<{ id: s
           <a href={url("opinion")} style={{ color: "#2563eb" }}>Opinión 32-D →</a>
           <a href={url("efirma")} style={{ color: "#2563eb" }}>e.firma →</a>
           <a href={url("immex")} style={{ color: "#2563eb" }}>Saldos IMMEX →</a>
+          <a href={url("notificaciones")} style={{ color: "#2563eb" }}>Notificaciones →</a>
           <a href="/operaciones" style={{ color: "#2563eb" }}>Operaciones →</a>
         </div>
       </section>
