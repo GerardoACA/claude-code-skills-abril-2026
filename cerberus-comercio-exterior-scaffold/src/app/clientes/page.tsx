@@ -120,6 +120,13 @@ export default async function ClientesPage() {
                   <td style={{ padding: "0.5rem 0.75rem" }}>{c.estadoCsd}</td>
                   <td style={{ padding: "0.5rem 0.75rem" }}>{c.etapa69b}</td>
                   <td style={{ padding: "0.5rem 0.75rem" }}>
+                    {/* [Inc 32] Panorama consolidado: el punto de entrada por cliente. */}
+                    <a
+                      href={`/clientes/${c.id}/panorama`}
+                      style={{ color: "#7c3aed", fontWeight: 700, marginRight: "0.75rem" }}
+                    >
+                      Panorama
+                    </a>
                     <a
                       href={`/clientes/${c.id}/kyc`}
                       style={{ color: "#2563eb", marginRight: "0.75rem" }}
