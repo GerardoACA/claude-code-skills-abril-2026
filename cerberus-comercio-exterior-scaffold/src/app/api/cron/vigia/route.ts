@@ -31,6 +31,8 @@ import {
   type ResumenFuente,
 } from "@/lib/sincronizar-listados";
 import { barridoVigia, type ResumenBarrido } from "@/lib/vigia-barrido";
+import { barridoVigencias, type ResumenVigencias } from "@/lib/vigia-vigencias";
+import { obtenerNotificador, type ResultadoNotificacion } from "@/lib/notificador";
 
 export const runtime = "nodejs";
 // Sincronizar listados grandes + barrer todos los tenants puede tardar: tope Vercel.
@@ -38,11 +40,39 @@ export const maxDuration = 300;
 // Sin caché/prerender: cada invocación del cron debe ejecutar el trabajo real.
 export const dynamic = "force-dynamic";
 
-// Respuesta del cron: resumen de ambos pasos.
+// Respuesta del cron: resumen de los pasos.
 type RespuestaVigia = {
   sync: ResumenFuente[];
   barrido: ResumenBarrido;
+  vigencias: { tenants: number; vencidos: number; porVencer: number };
+  notificacion: ResultadoNotificacion;
 };
+
+// -----------------------------------------------------------------------------
+// Compone el mensaje del vigía para el canal (Telegram). Devuelve null si no hay
+// nada que reportar (para no mandar pings vacíos a diario).
+// -----------------------------------------------------------------------------
+function componerMensaje(barrido: ResumenBarrido, vigencias: ResumenVigencias, fechaIso: string): string | null {
+  const hayCumplimiento = barrido.alertas > 0;
+  const hayVencimientos = vigencias.vencidos + vigencias.porVencer > 0;
+  if (!hayCumplimiento && !hayVencimientos) return null;
+
+  const lineas: string[] = [`🐺 CERBERUS Vigía — ${fechaIso.slice(0, 16).replace("T", " ")}`];
+  lineas.push(
+    `Cumplimiento: ${barrido.alertas} alerta(s) nueva(s) · ${barrido.clientes} cliente(s) · ${barrido.tenants} tenant(s).`,
+  );
+  lineas.push(`Vencimientos: ${vigencias.vencidos} vencido(s), ${vigencias.porVencer} por vencer.`);
+
+  for (const a of barrido.detalles.slice(0, 8)) {
+    lineas.push(`⚠️ ${a.rfc} · ${a.fuente}: ${a.de} → ${a.a}`);
+  }
+  for (const v of vigencias.items.slice(0, 10)) {
+    const dias = v.diasRestantes === null ? "" : ` (${v.diasRestantes}d)`;
+    const icono = v.estado === "VENCIDO" ? "⛔" : "⏳";
+    lineas.push(`${icono} ${v.tipo} ${v.referencia} — ${v.contexto}${dias}`);
+  }
+  return lineas.join("\n");
+}
 
 // -----------------------------------------------------------------------------
 // GET /api/cron/vigia — sincroniza listados SAT y re-verifica todos los clientes.
@@ -65,6 +95,23 @@ export async function GET(request: Request): Promise<NextResponse> {
   //    listados recién importados.
   const barrido = await barridoVigia(prisma);
 
-  const respuesta: RespuestaVigia = { sync, barrido };
+  // 3) Barrido de VENCIMIENTOS (opiniones, encargos, contratos, documentos):
+  //    clasifica y registra un evento encadenado por tenant con hallazgos.
+  const vigencias = await barridoVigencias(prisma);
+
+  // 4) Notificación por Telegram (conector enchufable; NoOp si no está
+  //    configurado). Solo se envía si hay algo que reportar. Fail-safe.
+  const mensaje = componerMensaje(barrido, vigencias, new Date().toISOString());
+  const notificacion: ResultadoNotificacion =
+    mensaje === null
+      ? { ok: false, canal: "NINGUNO", detalle: "Sin novedades: no se envió notificación." }
+      : await obtenerNotificador().enviar(mensaje);
+
+  const respuesta: RespuestaVigia = {
+    sync,
+    barrido,
+    vigencias: { tenants: vigencias.tenants, vencidos: vigencias.vencidos, porVencer: vigencias.porVencer },
+    notificacion,
+  };
   return NextResponse.json(respuesta, { status: 200 });
 }
