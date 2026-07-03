@@ -14,18 +14,13 @@ FECHA: 23 de julio de 2025  MILLENNIAL PRODUCTIVE PARK SA DE CV  MPP171122QX4
 Cadena Original:
 ||Invocante:portalimssdigital|Folio:17532978445751455363986|RFC:MPP171122QX4|Nombre o Razon Social:MILLENNIAL PRODUCTIVE PARK SA DE CV|CURP:|Opinion:POSITIVA||`;
 
-const TXT_CSF = `Constancia de Situación Fiscal
-idCIF: 12345678901
-RFC: MPP171122QX4
-Denominación/Razón Social: MILLENNIAL PRODUCTIVE PARK SA DE CV
-Régimen: Régimen General de Ley Personas Morales
-Nombre de la Vialidad: AV REFORMA
-Número Exterior: 100
-Nombre de la Colonia: JUAREZ
-Código Postal: 06600
-Municipio o Delegación: CUAUHTEMOC
-Entidad Federativa: CIUDAD DE MEXICO
-Actividad Económica: Comercio al por mayor de maquinaria`;
+// Formato REAL de la Constancia de Situación Fiscal (texto aplanado por unpdf:
+// etiqueta seguida del valor y de la siguiente etiqueta; actividad en tabla).
+const TXT_CSF = `CONSTANCIA DE SITUACIÓN FISCAL idCIF: 15110473037
+Datos de Identificación del Contribuyente: RFC: MPP171122QX4 Denominación/Razón Social: MILLENNIAL PRODUCTIVE PARK SA DE CV Régimen Capital: SOCIEDAD ANONIMA Nombre Comercial: MILLENNIAL Fecha inicio de operaciones: 22 DE NOVIEMBRE DE 2017 Estatus en el padrón: ACTIVO
+Datos del domicilio registrado Código Postal: 06600 Tipo de Vialidad: AVENIDA Nombre de Vialidad: AV REFORMA Número Exterior: 100 Número Interior: Nombre de la Colonia: JUAREZ Nombre de la Localidad: CUAUHTEMOC Nombre del Municipio o Demarcación Territorial: CUAUHTEMOC Nombre de la Entidad Federativa: CIUDAD DE MEXICO Entre Calle: X Y Calle: Y
+Actividades Económicas: Orden Actividad Económica Porcentaje Fecha Inicio Fecha Fin 1 Comercio al por mayor de maquinaria 100 22/11/2017
+Regímenes: Régimen Fecha Inicio Fecha Fin Régimen General de Ley Personas Morales 01/01/2026`;
 
 describe("extraerDatosKyc", () => {
   it("Opinión SAT: tipo, RFC y razón social limpia", () => {

@@ -37,19 +37,54 @@ const SUFIJOS =
 const RAZON_SUFIJO_RE = new RegExp(`([A-ZÑ&0-9][A-ZÑ&0-9 .,'\\-]{3,90}?\\s${SUFIJOS})(?:\\b|$)`);
 
 function normalizarEspacios(t: string): string {
+  // unpdf aplana el PDF: se colapsan espacios y se unifican saltos a " ␤ ".
   return t.replace(/[ \t]+/g, " ").replace(/\r/g, "");
 }
 
-/** Busca el valor de una etiqueta tipo "Etiqueta: valor" o "Etiqueta\n valor". */
+// Alternación de las ETIQUETAS de la Constancia de Situación Fiscal / opinión.
+// Se usa como frontera derecha para acotar el valor de cada campo cuando el PDF
+// viene aplanado (el valor va de "Etiqueta:" hasta la SIGUIENTE etiqueta).
+const SIG_ETIQUETA =
+  "(?:RFC|Denominaci[oó]n\\/?\\s?Raz[oó]n Social|Nombre,? [Dd]enominaci[oó]n o [Rr]az[oó]n [Ss]ocial|" +
+  "R[eé]gimen Capital|R[eé]gimen|Nombre Comercial|Fecha inicio de operaciones|Estatus en el padr[oó]n|" +
+  "Fecha de [uú]ltimo cambio|C[oó]digo Postal|Tipo de Vialidad|Nombre de (?:la )?Vialidad|" +
+  "N[uú]mero Exterior|N[uú]mero Interior|Nombre de la Colonia|Nombre de la Localidad|" +
+  "Nombre del Municipio(?: o Demarcaci[oó]n Territorial)?|Nombre de la Entidad Federativa|" +
+  "Entre Calle|Y Calle|Actividad(?:es)? Econ[oó]mica(?:s)?|Datos del domicilio|Reg[ií]menes|Obligaciones|" +
+  "Orden|Porcentaje|Fecha Inicio|Fecha Fin|CURP|Opinion|Invocante|Tramite|Folio|Sentido)\\s*:?";
+
+/**
+ * Valor de "Etiqueta: valor", acotado hasta la SIGUIENTE etiqueta conocida, un
+ * "|" (cadena original) o un salto de línea. Robusto ante el texto aplanado.
+ */
 function valorEtiqueta(texto: string, etiquetas: string[]): string | null {
   for (const et of etiquetas) {
-    const re = new RegExp(`${et}\\s*:?\\s*([^\\n|]{2,120})`, "i");
+    const re = new RegExp(`${et}\\s*:\\s*(.+?)\\s*(?=${SIG_ETIQUETA}|\\||\\n|$)`, "i");
     const m = texto.match(re);
     if (m && m[1]) {
       const v = m[1].trim().replace(/\s{2,}/g, " ");
-      if (v.length >= 2) return v;
+      if (v.length >= 2 && v.length <= 90) return v;
     }
   }
+  return null;
+}
+
+/** Régimen FISCAL (no el "Régimen Capital"): toma el de la sección "Regímenes". */
+function extraerRegimen(texto: string): string | null {
+  const m = texto.match(
+    /R[eé]gimen (General de Ley Personas Morales|Simplificado de Confianza|de Incorporaci[oó]n Fiscal|de las? Personas F[ií]sicas con Actividades? Empresariales?(?: y Profesionales)?|de Actividades? Empresariales?(?: y Profesionales)?|de Arrendamiento|de Sueldos y Salarios[^\n|]*)/i,
+  );
+  return m ? m[0].trim().replace(/\s{2,}/g, " ") : null;
+}
+
+/** Actividad económica principal: la fila de la tabla "Actividades Económicas". */
+function extraerActividad(texto: string): string | null {
+  // Tras los encabezados de la tabla y el número de orden viene el nombre,
+  // seguido del porcentaje (número). Capturar el nombre.
+  const m = texto.match(
+    /Actividad Econ[oó]mica\s+Porcentaje[\s\S]{0,40}?\b\d{1,2}\s+([A-Za-zÁÉÍÓÚÑñáéíóú][A-Za-zÁÉÍÓÚÑñáéíóú ,.()/-]{3,70}?)\s+\d{1,3}\b/i,
+  );
+  if (m && m[1]) return m[1].trim().replace(/\s{2,}/g, " ");
   return null;
 }
 
@@ -124,25 +159,24 @@ export function extraerDatosKyc(texto: string): DatosExtraidosKyc {
   }
   if (razonSocial) campos.push("Razón social");
 
-  // Campos de la Constancia de Situación Fiscal.
-  const regimen = valorEtiqueta(limpio, ["R[eé]gimen"]);
+  // Campos de la Constancia de Situación Fiscal (tablas → extractores dedicados).
+  const regimen = extraerRegimen(limpio);
   if (regimen) campos.push("Régimen");
 
-  const actividadEconomica = valorEtiqueta(limpio, [
-    "Actividad Econ[oó]mica",
-    "Actividades Econ[oó]micas",
-    "Nombre de la actividad",
-  ]);
+  const actividadEconomica =
+    extraerActividad(limpio) ??
+    valorEtiqueta(limpio, ["Actividad(?:es)? Econ[oó]mica(?:s)?", "Nombre de la actividad"]);
   if (actividadEconomica) campos.push("Actividad económica");
 
-  // Domicilio: ensamblar de partes de la CSF si aparecen; si no, etiqueta directa.
+  // Domicilio: ensamblar de las partes de la CSF (etiquetas exactas).
+  const cp = valorEtiqueta(limpio, ["C[oó]digo Postal"]);
   const vial = valorEtiqueta(limpio, ["Nombre de (?:la )?Vialidad"]);
   const numExt = valorEtiqueta(limpio, ["N[uú]mero Exterior"]);
-  const colonia = valorEtiqueta(limpio, ["Nombre de (?:la )?Colonia", "Colonia"]);
-  const cp = valorEtiqueta(limpio, ["C[oó]digo Postal", "CP"]);
-  const municipio = valorEtiqueta(limpio, ["Municipio o Delegaci[oó]n", "Municipio"]);
-  const entidad = valorEtiqueta(limpio, ["Entidad Federativa", "Estado"]);
-  const partes = [vial, numExt, colonia, cp, municipio, entidad].filter(
+  const colonia = valorEtiqueta(limpio, ["Nombre de la Colonia"]);
+  const municipio = valorEtiqueta(limpio, ["Nombre del Municipio(?: o Demarcaci[oó]n Territorial)?"]);
+  const entidad = valorEtiqueta(limpio, ["Nombre de la Entidad Federativa"]);
+  const calle = [vial, numExt].filter((x): x is string => !!x).join(" ");
+  const partes = [calle || null, colonia, cp ? `CP ${cp}` : null, municipio, entidad].filter(
     (x): x is string => x !== null && x.length > 0,
   );
   let domicilio: string | null = partes.length >= 2 ? partes.join(", ") : null;
