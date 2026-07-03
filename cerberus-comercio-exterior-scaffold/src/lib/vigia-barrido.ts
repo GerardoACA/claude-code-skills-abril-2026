@@ -20,7 +20,8 @@
 //                 patrón EXACTO del route de cambio de estado.
 //
 // Multi-tenant SIN sesión (es un cron, no hay JWT): los ids de Tenant se leen
-// con prisma directo (tabla raíz, sin tenant_id) y cada tenant se recorre
+// con `listarTenantIds` (función SECURITY DEFINER app_listar_tenant_ids(), porque
+// la tabla `tenant` tiene FORCE RLS) y cada tenant se recorre
 // DENTRO de `withTenant(tenantId, fn)` (@/lib/tenant-context), que abre la
 // transacción y fija app.tenant_id => la RLS sigue aislando cada tenant.
 // PROHIBIDO evadir la RLS (nada de BYPASSRLS): se itera contexto por contexto.
@@ -33,7 +34,7 @@
 // =============================================================================
 
 import type { PrismaClient, Prisma } from "@prisma/client";
-import { withTenant } from "@/lib/tenant-context";
+import { withTenant, listarTenantIds } from "@/lib/tenant-context";
 import {
   verificarCumplimiento,
   type FuenteVerificacion,
@@ -253,16 +254,18 @@ export async function barridoVigia(prisma: PrismaClient): Promise<ResumenBarrido
     detalles: [],
   };
 
-  // Ids de todos los tenants (tabla raíz; prisma directo, sin contexto RLS).
-  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  // Ids de todos los tenants. La tabla `tenant` tiene FORCE RLS, así que se
+  // enumeran vía la función SECURITY DEFINER app_listar_tenant_ids() (ver
+  // listarTenantIds): un findMany directo bajo el rol de app devolvería 0.
+  const tenantIds = await listarTenantIds(prisma);
 
-  for (const tenant of tenants) {
+  for (const tenantId of tenantIds) {
     try {
       // Todo el trabajo del tenant corre en SU transacción con app.tenant_id
       // fijado (RLS). Los resultados se devuelven y se agregan FUERA de la
       // transacción: si esta se revierte, no quedan alertas fantasma.
       const resumenTenant = await withTenant(
-        tenant.id,
+        tenantId,
         async (tx): Promise<ResumenTenant> => {
           const clientes = await tx.cliente.findMany({
             select: { id: true, rfc: true, razonSocial: true },
@@ -273,13 +276,13 @@ export async function barridoVigia(prisma: PrismaClient): Promise<ResumenBarrido
 
           for (const cliente of clientes) {
             try {
-              const alertas = await barrerCliente(tx, tenant.id, cliente);
+              const alertas = await barrerCliente(tx, tenantId, cliente);
               parcial.clientes += 1;
               parcial.detalles.push(...alertas);
             } catch (error) {
               // Un cliente que falla no aborta el barrido del tenant.
               console.error(
-                `[vigia] fallo al verificar cliente ${cliente.id} (rfc ${cliente.rfc}) del tenant ${tenant.id}:`,
+                `[vigia] fallo al verificar cliente ${cliente.id} (rfc ${cliente.rfc}) del tenant ${tenantId}:`,
                 error,
               );
             }
@@ -296,7 +299,7 @@ export async function barridoVigia(prisma: PrismaClient): Promise<ResumenBarrido
     } catch (error) {
       // Un tenant que falla (p. ej. su transacción se revierte) no aborta el
       // barrido de los demás.
-      console.error(`[vigia] fallo el barrido del tenant ${tenant.id}:`, error);
+      console.error(`[vigia] fallo el barrido del tenant ${tenantId}:`, error);
     }
   }
 

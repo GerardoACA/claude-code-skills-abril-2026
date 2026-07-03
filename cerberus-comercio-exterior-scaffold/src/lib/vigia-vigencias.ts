@@ -12,7 +12,7 @@
 // =============================================================================
 
 import type { PrismaClient, Prisma } from "@prisma/client";
-import { withTenant } from "@/lib/tenant-context";
+import { withTenant, listarTenantIds } from "@/lib/tenant-context";
 import { sha256 } from "@/lib/probatoria/hash";
 import { clasificarVigencia, ordenUrgencia, type EstadoVigencia } from "@/lib/vigencias";
 
@@ -112,14 +112,15 @@ async function registrarEventoVigencias(
 /** Barrido de vencimientos multi-tenant. `ahora` inyectable para pruebas. */
 export async function barridoVigencias(prisma: PrismaClient, ahora: Date = new Date()): Promise<ResumenVigencias> {
   const resumen: ResumenVigencias = { tenants: 0, vencidos: 0, porVencer: 0, items: [] };
-  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  // `tenant` tiene FORCE RLS → se enumeran por la función SECURITY DEFINER.
+  const tenantIds = await listarTenantIds(prisma);
 
-  for (const tenant of tenants) {
+  for (const tenantId of tenantIds) {
     try {
-      const items = await withTenant(tenant.id, async (tx): Promise<ItemVencimiento[]> => {
-        const encontrados = await reunirVencimientos(tx, tenant.id, ahora);
+      const items = await withTenant(tenantId, async (tx): Promise<ItemVencimiento[]> => {
+        const encontrados = await reunirVencimientos(tx, tenantId, ahora);
         if (encontrados.length > 0) {
-          await registrarEventoVigencias(tx, tenant.id, encontrados);
+          await registrarEventoVigencias(tx, tenantId, encontrados);
         }
         return encontrados;
       });
@@ -128,7 +129,7 @@ export async function barridoVigencias(prisma: PrismaClient, ahora: Date = new D
       resumen.vencidos += items.filter((i) => i.estado === "VENCIDO").length;
       resumen.porVencer += items.filter((i) => i.estado === "POR_VENCER").length;
     } catch (error) {
-      console.error(`[vigia-vigencias] fallo el barrido del tenant ${tenant.id}:`, error);
+      console.error(`[vigia-vigencias] fallo el barrido del tenant ${tenantId}:`, error);
     }
   }
   return resumen;

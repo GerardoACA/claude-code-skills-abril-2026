@@ -16,7 +16,7 @@
 //     que reuse la conexion.
 // =============================================================================
 
-import { Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 /** Error de contexto de tenant. Lanzarlo aborta la transaccion => fail-closed. */
@@ -24,6 +24,28 @@ export class TenantContextError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "TenantContextError";
+  }
+}
+
+// -----------------------------------------------------------------------------
+// listarTenantIds: enumera los ids de TODOS los tenants para procesos de sistema
+// SIN sesion (el vigia/cron). La tabla `tenant` tiene FORCE RLS, asi que el rol
+// de aplicacion (cerberus_ce_app) NO puede leerla con un findMany directo (RLS
+// la vacia => 0 filas, y el barrido no barreria a nadie). Por eso se usa la
+// funcion SECURITY DEFINER `app_listar_tenant_ids()` (owner con BYPASSRLS,
+// creada en prisma/sql/01-enable-rls-policies.sql y con GRANT EXECUTE al rol de
+// app), que devuelve SOLO los ids (no expone datos del tenant). Fallback al
+// findMany por si la funcion no esta (p. ej. rol owner en local sin RLS).
+// -----------------------------------------------------------------------------
+export async function listarTenantIds(client: PrismaClient): Promise<string[]> {
+  try {
+    const rows = await client.$queryRaw<{ id: string }[]>`
+      SELECT t AS id FROM app_listar_tenant_ids() t
+    `;
+    return rows.map((r) => r.id);
+  } catch {
+    const tenants = await client.tenant.findMany({ select: { id: true } });
+    return tenants.map((t) => t.id);
   }
 }
 
