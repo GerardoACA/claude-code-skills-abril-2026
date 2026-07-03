@@ -997,6 +997,9 @@ model OpinionCumplimientoIngestada {
   sentido        SentidoOpinion @default(INDETERMINADO)
   /// Fecha de emisión detectada en el documento.
   fechaEmision   DateTime? @map("fecha_emision")
+  /// Vigencia de la opinión (Inc 33): IMSS la declara (FechaFinVigencia); para el
+  /// SAT se estima en 30 días naturales desde la emisión (RMF 2.1.37).
+  vigenciaHasta  DateTime? @map("vigencia_hasta")
   /// Veredicto de la validación automática de autenticidad.
   resultado      ResultadoValidacionOpinion
   /// Observaciones/checks del validador (JSON serializado).

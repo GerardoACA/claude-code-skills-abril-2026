@@ -142,6 +142,20 @@ export default async function DashboardPage() {
           >
             Operaciones
           </a>
+          {/* [Inc 33] Calendario de vigencias/vencimientos (cualquier rol). */}
+          <a
+            href="/vigencias"
+            style={{
+              background: "#b45309",
+              color: "#fff",
+              padding: "0.5rem 0.9rem",
+              borderRadius: 6,
+              textDecoration: "none",
+              fontSize: "0.95rem",
+            }}
+          >
+            Vigencias
+          </a>
           {/* [Inc 19] Tablero ejecutivo con métricas (cualquier rol autenticado). */}
           <a
             href="/tablero-ejecutivo"

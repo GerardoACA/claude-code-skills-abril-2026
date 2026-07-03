@@ -51,6 +51,8 @@ export interface AnalisisOpinion {
   readonly folio: string | null;
   readonly sentido: SentidoOpinion;
   readonly fechaEmision: string | null;
+  /** Vigencia de la opinión (ISO): IMSS declarada; SAT estimada (emisión + 30 días). */
+  readonly vigenciaHasta: string | null;
   /** URL de verificación detectada (la que codifica el QR del SAT), si existe. */
   readonly urlVerificacion: string | null;
   /** Cadena original EXACTA (para verificar el sello). */
@@ -226,6 +228,7 @@ export function analizarOpinion(texto: string, rfcCliente: string): AnalisisOpin
       folio: null,
       sentido: "INDETERMINADO",
       fechaEmision: null,
+      vigenciaHasta: null,
       urlVerificacion: null,
       cadenaOriginal: null,
       selloBase64: null,
@@ -261,6 +264,17 @@ export function analizarOpinion(texto: string, rfcCliente: string): AnalisisOpin
   const folio = cad.folio ?? extraerFolioTexto(limpio);
   const sentido = cad.sentido !== "INDETERMINADO" ? cad.sentido : detectarSentidoTexto(norm);
   const fechaEmision = cad.fecha ?? null;
+
+  // Vigencia (Inc 33): el IMSS la declara en la cadena (FechaFinVigencia); para el
+  // SAT se estima en 30 días naturales desde la emisión (RMF 2.1.37).
+  let vigenciaHasta: string | null = null;
+  if (emisor === "IMSS" && cadenaOriginal) {
+    const m = cadenaOriginal.match(/FechaFinVigencia\s*:\s*([^|]+)/i);
+    if (m) vigenciaHasta = fechaEspanol(m[1]);
+  } else if (fechaEmision) {
+    const d = new Date(Date.parse(fechaEmision) + 30 * 24 * 60 * 60 * 1000);
+    vigenciaHasta = Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
 
   const rfcCoincide = rfcDoc !== null && normalizar(rfcDoc) === rfcClienteNorm;
 
@@ -331,7 +345,7 @@ export function analizarOpinion(texto: string, rfcCliente: string): AnalisisOpin
 
   return {
     resultado, sha256: huella, emisor, rfcDocumento: rfcDoc, folio, sentido,
-    fechaEmision, urlVerificacion, cadenaOriginal, selloBase64,
+    fechaEmision, vigenciaHasta, urlVerificacion, cadenaOriginal, selloBase64,
     serieCertificado: cad.serie, checks, resumen,
   };
 }

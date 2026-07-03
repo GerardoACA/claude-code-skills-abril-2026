@@ -338,6 +338,7 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
           folio: analisis?.folio ?? null,
           sentido: sentidoEfectivo,
           fechaEmision: analisis?.fechaEmision ? new Date(analisis.fechaEmision) : null,
+          vigenciaHasta: analisis?.vigenciaHasta ? new Date(analisis.vigenciaHasta) : null,
           resultado: veredicto,
           observaciones: JSON.stringify({
             emisor,
