@@ -128,9 +128,17 @@ export default async function ClientesPage() {
                     </a>
                     <a
                       href={`/clientes/${c.id}/verificacion`}
-                      style={{ color: "#2563eb" }}
+                      style={{ color: "#2563eb", marginRight: "0.75rem" }}
                     >
                       Verificación 69-B
+                    </a>
+                    {/* [Inc 28] Cumplimiento: verificación integral + ingesta de la
+                        opinión 32-D (SAT/IMSS), e.firma y saldos IMMEX. */}
+                    <a
+                      href={`/clientes/${c.id}/cumplimiento`}
+                      style={{ color: "#7c3aed", fontWeight: 600 }}
+                    >
+                      Cumplimiento / Documentos
                     </a>
                   </td>
                 </tr>
