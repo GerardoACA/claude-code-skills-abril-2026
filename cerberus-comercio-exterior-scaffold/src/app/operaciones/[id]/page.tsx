@@ -169,6 +169,8 @@ export default async function OperacionDetallePage({
             <p style={{ marginTop: "0.5rem", marginBottom: 0 }}><a href={`/operaciones/${encodeURIComponent(operacion.id)}/expediente`} style={{ color: "#2563eb" }}>Expediente probatorio →</a></p>
             <p style={{ marginTop: "0.5rem", marginBottom: 0 }}><a href={`/operaciones/${encodeURIComponent(operacion.id)}/dossier`} style={{ color: "#2563eb" }}>Dossier de diligencia →</a></p>
             <p style={{ marginTop: "0.5rem", marginBottom: 0 }}><a href={`/operaciones/${encodeURIComponent(operacion.id)}/cfdi`} style={{ color: "#2563eb" }}>CFDI / Carta Porte →</a></p>
+            {/* [Inc 31] Partidas, valoración y cálculo de contribuciones (IGI/DTA/IVA/IEPS). */}
+            <p style={{ marginTop: "0.5rem", marginBottom: 0 }}><a href={`/operaciones/${encodeURIComponent(operacion.id)}/partidas`} style={{ color: "#2563eb" }}>Partidas y contribuciones →</a></p>
           </section>
 
           <section style={{ marginTop: "1.5rem" }}>

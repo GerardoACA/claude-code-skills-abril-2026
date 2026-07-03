@@ -166,6 +166,7 @@ model Tenant {
   overrides                 OverrideAlerta[]
   efirmasEntregadas         EfirmaEntregada[]
   opinionesCumplimiento     OpinionCumplimientoIngestada[]
+  pedimentos                Pedimento[]
 
   @@map("tenant")
 }
@@ -452,6 +453,7 @@ model Operacion {
   documentos     Documento[]
   eventos        BitacoraAuditoria[]
   comprobantes   ComprobanteCfdi[]
+  pedimentos     Pedimento[]
 
   @@unique([tenantId, referencia])
   @@index([tenantId, estado])
@@ -478,10 +480,56 @@ model Partida {
   incoterm         String?
   /// Valor declarado (reservado).
   valorDeclarado   Decimal? @map("valor_declarado") @db.Decimal(18, 4)
+
+  // Valoración aduanera + contribuciones (Incremento 31). Todo en MXN salvo tasas.
+  /// Valor en aduana (base gravable) en MXN = valor de transacción + incrementables.
+  valorAduana      Decimal? @map("valor_aduana") @db.Decimal(18, 2)
+  /// Tasa de IGI (% ad valorem) de la fracción TIGIE.
+  tasaIgiPct       Decimal? @map("tasa_igi_pct") @db.Decimal(7, 4)
+  /// Tasa de IEPS (%) si la mercancía la causa.
+  tasaIepsPct      Decimal? @map("tasa_ieps_pct") @db.Decimal(7, 4)
+  igiImporte       Decimal? @map("igi_importe") @db.Decimal(18, 2)
+  dtaImporte       Decimal? @map("dta_importe") @db.Decimal(18, 2)
+  iepsImporte      Decimal? @map("ieps_importe") @db.Decimal(18, 2)
+  ivaImporte       Decimal? @map("iva_importe") @db.Decimal(18, 2)
+  /// Sello de integridad (SHA-256) de la partida capturada+calculada.
+  sha256           String?  @db.Char(64)
+
   creadoEn         DateTime @default(now()) @map("creado_en")
 
   @@index([tenantId, operacionId])
   @@map("partida")
+}
+
+/// Pedimento (Incremento 31): resumen de contribuciones de una operación,
+/// agregando sus partidas. Es registro probatorio (sellado); el cálculo real de
+/// fracciones/regulaciones se enchufa con el conector ClasificadorArancel.
+model Pedimento {
+  id                  String    @id @default(cuid())
+  tenantId            String    @map("tenant_id")
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  operacionId         String    @map("operacion_id")
+  operacion           Operacion @relation(fields: [operacionId], references: [id], onDelete: Cascade)
+
+  /// Clave de pedimento (p. ej. A1 importación definitiva).
+  claveDePedimento    String    @map("clave_de_pedimento")
+  /// Régimen aduanero (p. ej. IMPORTACION DEFINITIVA).
+  regimen             String
+  /// Tipo de cambio aplicado (MXN por USD) a la fecha del pedimento.
+  tipoCambioUsd       Decimal   @map("tipo_cambio_usd") @db.Decimal(12, 4)
+
+  valorAduanaTotal    Decimal   @map("valor_aduana_total") @db.Decimal(18, 2)
+  igiTotal            Decimal   @map("igi_total") @db.Decimal(18, 2)
+  dtaTotal            Decimal   @map("dta_total") @db.Decimal(18, 2)
+  iepsTotal           Decimal   @map("ieps_total") @db.Decimal(18, 2)
+  ivaTotal            Decimal   @map("iva_total") @db.Decimal(18, 2)
+  contribucionesTotal Decimal   @map("contribuciones_total") @db.Decimal(18, 2)
+
+  sha256              String    @db.Char(64)
+  creadoEn            DateTime  @default(now()) @map("creado_en")
+
+  @@index([tenantId, operacionId])
+  @@map("pedimento")
 }
 
 // ============================================================================
