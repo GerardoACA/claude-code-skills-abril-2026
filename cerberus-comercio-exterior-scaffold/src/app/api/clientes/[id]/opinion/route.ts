@@ -402,19 +402,26 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
       // del propio PDF, Inc 49B) o gateway configurado.
       const cotejo = await cotejarOpinion(analisis, cliente.rfc, urlQrEfectiva);
 
-      // Inc 49B: sellar la EVIDENCIA del cotejo en vivo (sha256 + WORM) y dejar
-      // la URL del validador en cotejoDetalle en formato parseable "url=…".
+      // Inc 49B/57: sellar la EVIDENCIA del cotejo en vivo (sha256 + WORM) y
+      // armar cotejoDetalle con los bloques parseables "url=…", "evidencia…" y
+      // el resumen de avisos del QR — se persiste AUNQUE el estado sea
+      // NO_DISPONIBLE (el porqué del silencio queda escrito).
       const evidenciaSellada =
         cotejo.evidencia && cotejo.evidencia.cuerpo.length > 0
           ? await sellarEvidenciaCotejo(tenantId, cotejo.evidencia)
           : null;
-      let cotejoDetalle = cotejo.detalle;
-      if (cotejo.urlSat !== null) cotejoDetalle += ` [url=${cotejo.urlSat}]`;
-      if (evidenciaSellada !== null && cotejo.evidencia) {
-        cotejoDetalle +=
-          ` [evidencia HTTP ${cotejo.evidencia.httpStatus} sha256=${evidenciaSellada.sha256}` +
-          (evidenciaSellada.wormUrl !== null ? ` worm=${evidenciaSellada.wormUrl}` : "") +
-          `]`;
+      const cotejoDetalle = construirCotejoDetalle({
+        detalle: cotejo.detalle,
+        urlSat: cotejo.urlSat,
+        evidencia: cotejo.evidencia ?? null,
+        evidenciaSellada,
+        advertencias,
+      });
+
+      // Inc 57: si el cotejo en vivo no concluyó, que la respuesta lo DIGA
+      // (después de armar el detalle, para no duplicar el mismo texto en él).
+      if (cotejo.estado === "NO_DISPONIBLE" || cotejo.estado === "NO_INTENTADO") {
+        advertencias.push(`Cotejo falló o no se intentó: ${cotejo.detalle}`);
       }
 
       // Sentido efectivo: el del documento si se detectó; si no, el que reportó
