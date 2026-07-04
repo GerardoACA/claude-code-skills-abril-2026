@@ -16,6 +16,14 @@
 //            (Carta Porte: emisor=tenant, receptor=cliente; Comercio Exterior:
 //            emisor=cliente exportador). Los campos siguen editables (C9).
 //
+//            [Inc 53] Cuadre CFDI ↔ Pedimento: en la misma transacción se toma
+//            el CFDI más reciente con complemento COMERCIO_EXT_11 (su payload),
+//            el pedimento más reciente (valorAduanaTotal, tipoCambioUsd) y las
+//            fracciones declaradas de TODAS las partidas, y se corre
+//            cuadrarCfdiPedimento (src/lib/cuadre-cfdi-pedimento.ts). El
+//            resultado se pinta como recuadro semáforo (verde/ámbar/rojo).
+//            C9: el cuadre ALERTA, nunca bloquea.
+//
 // Fail-closed: sin sesión válida => redirect a /login. Si la operación no
 // pertenece al tenant (o no existe), la lectura devuelve null y se muestra aviso.
 // En Next 16 `params` es Promise => se await.
@@ -32,6 +40,12 @@ import {
 // [Inc 16] Complemento de Comercio Exterior 1.1 (CFDI de ingreso — exportación).
 import { CfdiComercioExtForm } from "@/components/CfdiComercioExtForm";
 import { CfdiAcciones, type EstadoCfdi } from "@/components/CfdiAcciones";
+// [Inc 53] Cuadre CFDI (Comercio Exterior 1.1) ↔ Pedimento (lógica pura).
+import {
+  cuadrarCfdiPedimento,
+  extraerDatosCfdiDePayload,
+  type ResultadoCuadre,
+} from "@/lib/cuadre-cfdi-pedimento";
 
 // Depende de la sesión/DB: no debe pre-renderizarse en build.
 export const dynamic = "force-dynamic";
@@ -75,6 +89,32 @@ type OperacionCfdi = {
   comprobantes: ComprobanteSerializado[];
   /** [Inc 45] Lo que la BD ya sabe para prellenar ambos forms de CFDI. */
   precarga: PrecargaCfdi;
+  /** [Inc 53] Cuadre CFDI ↔ Pedimento (null si no hay CFDI de comercio ext). */
+  cuadre: ResultadoCuadre | null;
+};
+
+// [Inc 53] Estilos de la casa para el semáforo del cuadre.
+const COLOR_CUADRE: Readonly<
+  Record<ResultadoCuadre["estado"], { fondo: string; borde: string; texto: string; titulo: string }>
+> = {
+  CUADRA: {
+    fondo: "#ecfdf5",
+    borde: "#a7f3d0",
+    texto: "#065f46",
+    titulo: "CFDI y pedimento cuadran",
+  },
+  NO_COMPARABLE: {
+    fondo: "#fffbeb",
+    borde: "#fde68a",
+    texto: "#92400e",
+    titulo: "Cuadre CFDI ↔ pedimento no comparable",
+  },
+  DISCREPANCIA: {
+    fondo: "#fef2f2",
+    borde: "#fecaca",
+    texto: "#991b1b",
+    titulo: "Discrepancia entre CFDI y pedimento",
+  },
 };
 
 export default async function CfdiPage({
@@ -120,6 +160,8 @@ export default async function CfdiPage({
           sha256: true,
           detallePac: true,
           creadoEn: true,
+          // [Inc 53] Solo para el cuadre en servidor; NO se serializa al cliente.
+          payload: true,
         },
       });
 
@@ -131,7 +173,8 @@ export default async function CfdiPage({
       const pedimento = await tx.pedimento.findFirst({
         where: { operacionId: op.id },
         orderBy: { creadoEn: "desc" },
-        select: { claveDePedimento: true, tipoCambioUsd: true },
+        // [Inc 53] valorAduanaTotal se suma para el cuadre CFDI ↔ pedimento.
+        select: { claveDePedimento: true, tipoCambioUsd: true, valorAduanaTotal: true },
       });
       const partida = await tx.partida.findFirst({
         where: { operacionId: op.id },
@@ -144,6 +187,43 @@ export default async function CfdiPage({
           valorDeclarado: true,
         },
       });
+
+      // [Inc 53] Cuadre CFDI ↔ Pedimento: el SAT cruza el CFDI con Complemento
+      // de Comercio Exterior contra el pedimento (fracción y valores). Se toma
+      // el comprobante MÁS RECIENTE no cancelado con complemento
+      // COMERCIO_EXT_11 y se cruza contra el pedimento más reciente con las
+      // fracciones declaradas de TODAS las partidas (misma transacción => RLS).
+      const cfdiComercioExt = comprobantes.find(
+        (c) => (c.complemento as string) === "COMERCIO_EXT_11" && (c.estado as string) !== "CANCELADO",
+      );
+      let cuadre: ResultadoCuadre | null = null;
+      if (cfdiComercioExt !== undefined) {
+        const datosCfdi = extraerDatosCfdiDePayload(cfdiComercioExt.payload);
+        if (datosCfdi === null) {
+          // Fail-safe: payload sellado ilegible => se explica, no se lanza (C9).
+          cuadre = {
+            estado: "NO_COMPARABLE",
+            hallazgos: [
+              "El payload sellado del CFDI no contiene un complemento de Comercio Exterior legible; no se pudo correr el cuadre.",
+            ],
+          };
+        } else {
+          const partidas = await tx.partida.findMany({
+            where: { operacionId: op.id },
+            select: { fraccionDeclarada: true },
+          });
+          cuadre = cuadrarCfdiPedimento(
+            datosCfdi,
+            pedimento !== null
+              ? {
+                  valorAduanaTotalMxn: Number(pedimento.valorAduanaTotal),
+                  tipoCambioUsd: Number(pedimento.tipoCambioUsd),
+                  fraccionesPartidas: partidas.map((p) => p.fraccionDeclarada),
+                }
+              : null,
+          );
+        }
+      }
 
       const precarga: PrecargaCfdi = {
         tenantRfc: tenant !== null ? tenant.rfc : null,
@@ -183,6 +263,7 @@ export default async function CfdiPage({
           creadoEn: c.creadoEn.toISOString(),
         })),
         precarga,
+        cuadre,
       };
     },
   );

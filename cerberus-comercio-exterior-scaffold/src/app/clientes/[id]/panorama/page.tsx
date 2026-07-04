@@ -257,6 +257,7 @@ export default async function PanoramaPage({ params }: { params: Promise<{ id: s
         <h2 style={{ fontSize: "1.05rem", marginTop: 0 }}>Expedientes y accesos</h2>
         <div style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap", fontSize: "0.9rem" }}>
           <a href={url("kyc")} style={{ color: "#2563eb" }}>KYC 1.4.14 →</a>
+          <a href={url("expediente-doble")} style={{ color: "#2563eb" }}>Expediente doble 3.1.42 →</a>
           <a href={url("verificacion")} style={{ color: "#2563eb" }}>Verificación 69-B →</a>
           <a href={url("cumplimiento")} style={{ color: "#2563eb" }}>Cumplimiento / documentos →</a>
           <a href={url("opinion")} style={{ color: "#2563eb" }}>Opinión 32-D →</a>
