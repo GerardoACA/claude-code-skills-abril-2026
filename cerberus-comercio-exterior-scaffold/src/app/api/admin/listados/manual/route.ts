@@ -10,6 +10,10 @@
 //   fecha, origen "MANUAL", url "manual://<nombre-archivo>", entradas con
 //   createMany por lotes de 1000 (rfc puede ser null: las listas de
 //   SANCIONES_INT identifican por NOMBRE).
+//   [Inc 58] Fuente PADRON (Padrón de Importadores, Módulo 2.1): CSV propio
+//   del despacho con columnas rfc,estado (ACTIVO|SUSPENDIDO) parseado con
+//   parsearCsvPadron (ESTRICTO: fila inválida → 422 con número de línea);
+//   el estado se guarda en `situacion` de la tabla global (sin migración).
 //
 // DECISIÓN DE DISEÑO — TABLAS GLOBALES SIN TENANT (heredada del Inc 10):
 //   ImportacionListadoSat/ListadoSatEntrada son referencia GLOBAL (sin
@@ -30,6 +34,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sha256 } from "@/lib/probatoria/hash";
 import { parsearCsvListado } from "@/lib/sat-listados";
+import { ErrorFilaPadron, parsearCsvPadron } from "@/lib/padron-importadores";
 import {
   FUENTES_VERIFICACION,
   type FuenteVerificacion,
@@ -149,13 +154,35 @@ export async function POST(req: Request): Promise<NextResponse> {
   const sha256Archivo = sha256(buffer);
   const texto = decodificarCsv(buffer);
 
-  // El parser (Agente MODELO-12) tolera RFC ausente cuando la fuente es
-  // SANCIONES_INT; el aserto de tipo cubre el hueco entre el enum completo del
-  // formulario y el subtipo de fuentes que declare la firma del parser.
-  const entradas = parsearCsvListado(
-    texto,
-    fuente as Parameters<typeof parsearCsvListado>[1],
-  );
+  // [Inc 58] PADRON usa su propio parser ESTRICTO (columnas rfc,estado con
+  // ACTIVO|SUSPENDIDO; RFC 12-13 validado): el archivo lo prepara el propio
+  // despacho, así que una fila inválida es error 422 con su línea, no un
+  // descarte silencioso. El estado se almacena en `situacion` de la tabla
+  // global ListadoSatEntrada (genérica por fuente): SIN cambio de schema.
+  // Las demás fuentes conservan el parser tolerante de listados (el de
+  // Agente MODELO-12, que tolera RFC ausente cuando la fuente es
+  // SANCIONES_INT; el aserto de tipo cubre el hueco entre el enum completo
+  // del formulario y el subtipo de fuentes que declare la firma del parser).
+  let entradas: { rfc: string | null; razonSocial?: string; situacion?: string }[];
+  if (fuente === "PADRON") {
+    try {
+      entradas = parsearCsvPadron(texto).map((fila) => ({
+        rfc: fila.rfc,
+        situacion: fila.estado,
+      }));
+    } catch (e) {
+      const mensaje =
+        e instanceof ErrorFilaPadron || e instanceof Error
+          ? e.message
+          : "CSV del padrón inválido";
+      return NextResponse.json({ error: mensaje }, { status: 422 });
+    }
+  } else {
+    entradas = parsearCsvListado(
+      texto,
+      fuente as Parameters<typeof parsearCsvListado>[1],
+    );
+  }
 
   if (entradas.length === 0) {
     // Un CSV sin filas reconocibles casi siempre es el archivo equivocado:

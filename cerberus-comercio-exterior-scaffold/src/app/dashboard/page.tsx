@@ -184,6 +184,22 @@ export default async function DashboardPage() {
           >
             Contrato de encargo
           </a>
+          {/* [Inc 60] Portal de consulta solo lectura, exclusivo rol AUTORIDAD. */}
+          {session.user.rol === "AUTORIDAD" ? (
+            <a
+              href="/autoridad"
+              style={{
+                background: "#b45309",
+                color: "#fff",
+                padding: "0.5rem 0.9rem",
+                borderRadius: 6,
+                textDecoration: "none",
+                fontSize: "0.95rem",
+              }}
+            >
+              Portal autoridad →
+            </a>
+          ) : null}
           {/* [Agente SERVICIO-12, Inc 12] enlace solo-ADMIN a /admin/listados */}
           {esAdmin ? (
             <a

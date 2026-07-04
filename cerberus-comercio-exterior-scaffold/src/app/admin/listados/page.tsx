@@ -175,9 +175,10 @@ export default async function AdminListadosPage() {
         <h2 style={{ fontSize: "1.2rem" }}>Ingesta manual de un archivo</h2>
         <p style={{ color: "#475569", fontSize: "0.9rem", marginTop: 0 }}>
           Sube un CSV de cualquier fuente (p. ej. 69-B Bis o 49 Bis publicados
-          sin URL estable, refrescos manuales de 69/69-B, o listas de sanciones
-          internacionales). Se importa con el mismo rigor probatorio: sha256
-          del archivo crudo, fecha y origen MANUAL.
+          sin URL estable, refrescos manuales de 69/69-B, listas de sanciones
+          internacionales, o el Padrón de Importadores con columnas rfc,estado
+          — el SAT no publica CSV público del padrón). Se importa con el mismo
+          rigor probatorio: sha256 del archivo crudo, fecha y origen MANUAL.
         </p>
         <IngestaManual esAdmin={true} fuentes={FUENTES_VERIFICACION} />
       </section>

@@ -70,6 +70,32 @@ export function esTipoDocDespacho(v: string): v is TipoDocDespacho {
   return (TIPOS_DOC_DESPACHO as readonly string[]).includes(v);
 }
 
+// -----------------------------------------------------------------------------
+// Mapeo tipo de PASO del despacho → tipo documental del catálogo (Inc 59).
+// El acuse adjuntado al registrar un paso (MVE/E2, COVE, PREVALIDACION, PAGO,
+// DODA) se guarda en la bóveda con el tipo documental que le corresponde.
+// Función PURA (probada en tests/conector-vucem.test.ts).
+// -----------------------------------------------------------------------------
+
+/** Mapeo explícito de los 5 tipos de paso conocidos. */
+const TIPO_DOC_POR_PASO: Readonly<Record<string, TipoDocDespacho>> = {
+  MVE_E2: "MANIFESTACION_VALOR",
+  COVE: "COVE_ACUSE",
+  DODA: "DODA",
+  // PAGO (comprobante de pago) y PREVALIDACION no tienen tipo propio en el
+  // catálogo: van como OTRO y el detalle del paso precisa qué son.
+  PAGO: "OTRO",
+  PREVALIDACION: "OTRO",
+};
+
+/**
+ * Tipo documental de la bóveda del despacho para el acuse de un paso.
+ * Desconocido → OTRO (fail-safe: el documento se guarda igual).
+ */
+export function tipoDocumentalDePaso(tipoPaso: string): TipoDocDespacho {
+  return TIPO_DOC_POR_PASO[tipoPaso] ?? "OTRO";
+}
+
 // =============================================================================
 // FIN documentos-despacho-catalogo.ts  —  CERBERUS COMERCIO EXTERIOR
 // =============================================================================

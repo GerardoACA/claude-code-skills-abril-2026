@@ -25,11 +25,13 @@
 //   - OPINION_32D y CSD_17H permanecen NO_DISPONIBLE (requieren e.firma del
 //     contribuyente; integración posterior), igual que hoy.
 //
-//   - PADRON (Incremento 56): Padrón de Importadores / Sectores Específicos
-//     (requisito del dictamen aduanal, Módulo 2.1 del despacho). Sin
-//     listado/fuente de padrón configurada todavía → NO_DISPONIBLE con
-//     detalle explícito de verificación manual (C9: el requisito queda
-//     visible sin inventar datos).
+//   - PADRON (Incremento 58): Padrón de Importadores / Sectores Específicos
+//     (requisito del dictamen aduanal, Módulo 2.1 del despacho) por INGESTA
+//     MANUAL (rfc,estado). Con ingesta cargada: ACTIVO → AL_CORRIENTE,
+//     SUSPENDIDO → INHABILITADO_PRESUNTO, AUSENTE del listado → ALERTA de
+//     verificación manual (listado posiblemente parcial; C9). Sin ingesta →
+//     NO_DISPONIBLE con detalle explícito (el requisito queda visible sin
+//     inventar datos).
 //
 //   - SANCIONES_INT (Incremento 12): listas de sanciones internacionales
 //     (OFAC/SDN, ONU, UE, UK…) por INGESTA MANUAL. Se consulta la ÚLTIMA
@@ -48,6 +50,7 @@
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { sha256 } from "@/lib/probatoria/hash";
 import { normalizarNombre } from "@/lib/sat-listados";
+import { evaluarPadron } from "@/lib/padron-importadores";
 
 /**
  * Fuentes/supuestos verificados. Los valores coinciden EXACTAMENTE con el enum
@@ -439,26 +442,65 @@ function resultadoNoIntegrado(
 }
 
 // -----------------------------------------------------------------------------
-// PADRON (Inc 56) — Padrón de Importadores / Sectores Específicos (requisito
-// del dictamen aduanal, Módulo 2.1 del despacho). Mismo patrón que las fuentes
-// sin URL/listado configurado (p. ej. ART_69B_BIS sin importación): mientras
-// no exista listado/fuente de padrón configurada, el resultado es
-// NO_DISPONIBLE con detalle explícito — el requisito queda VISIBLE sin
-// inventar datos (C9: alerta e informa, nunca bloquea).
+// PADRON (Inc 58) — Padrón de Importadores / Sectores Específicos (requisito
+// del dictamen aduanal, Módulo 2.1 del despacho) por INGESTA MANUAL: el SAT no
+// publica CSV público del padrón, así que el despacho carga el estado
+// (rfc,estado con ACTIVO|SUSPENDIDO) vía /api/admin/listados/manual, igual que
+// las sanciones. Se consulta la ÚLTIMA ingesta de la fuente PADRON en las
+// tablas globales; el mapeo estado→resultado (lógica pura, testeable) vive en
+// evaluarPadron de src/lib/padron-importadores.ts:
+//   ACTIVO → AL_CORRIENTE; SUSPENDIDO → INHABILITADO_PRESUNTO; AUSENTE del
+//   listado → ALERTA "verificar manualmente" (el listado puede ser parcial;
+//   C9: alerta, no bloquea); sin ingesta → NO_DISPONIBLE con instrucción.
 // -----------------------------------------------------------------------------
-function resultadoPadronNoConfigurado(
+async function verificarPadron(
+  db: DbVerificacion,
   rfc: string,
   consultadoEn: string,
-): ResultadoFuente {
+): Promise<ResultadoFuente> {
   const fuente = "PADRON" as const;
-  const resultado: ResultadoVerificacion = "NO_DISPONIBLE";
+
+  // 1) Última ingesta del padrón (manual; snapshot sellado con sha256 del crudo).
+  const importacion = await db.importacionListadoSat.findFirst({
+    where: { fuente },
+    orderBy: { importadoEn: "desc" },
+    select: { id: true, sha256Archivo: true, importadoEn: true, filas: true },
+  });
+
+  if (!importacion) {
+    // Sin filas de padrón cargadas: NO_DISPONIBLE con detalle explícito (el
+    // requisito del Módulo 2.1 queda VISIBLE sin inventar datos; C9).
+    const evaluacion = evaluarPadron(rfc, null, null);
+    return {
+      fuente,
+      resultado: evaluacion.resultado,
+      detalle: evaluacion.detalle,
+      snapshotSha256: snapshotSinArchivo(rfc, fuente, evaluacion.resultado, consultadoEn),
+      consultadoEn,
+    };
+  }
+
+  // 2) Buscar el RFC en las entradas de ESA ingesta (estado en `situacion`).
+  const entrada = await db.listadoSatEntrada.findFirst({
+    where: { importacionId: importacion.id, rfc },
+    select: { situacion: true },
+  });
+
+  // 3) Mapeo puro estado→resultado con la fecha de la última ingesta.
+  const evaluacion = evaluarPadron(
+    rfc,
+    entrada ? { estado: entrada.situacion } : null,
+    {
+      fechaIngesta: importacion.importadoEn.toISOString(),
+      filas: importacion.filas,
+    },
+  );
+
   return {
     fuente,
-    resultado,
-    detalle:
-      "Padrón de Importadores: fuente no configurada; verificación manual " +
-      "requerida (Módulo 2.1).",
-    snapshotSha256: snapshotSinArchivo(rfc, fuente, resultado, consultadoEn),
+    resultado: evaluacion.resultado,
+    detalle: evaluacion.detalle,
+    snapshotSha256: importacion.sha256Archivo,
     consultadoEn,
   };
 }
@@ -474,8 +516,9 @@ function resultadoPadronNoConfigurado(
  * contra la última lista internacional ingresada manualmente: RFC exacto →
  * mapeo normal; nombre normalizado → SIEMPRE ALERTA con revisión humana.
  * OPINION_32D y CSD_17H siguen NO_DISPONIBLE hasta su integración (e.firma).
- * PADRON (Inc 56) es NO_DISPONIBLE con verificación manual requerida mientras
- * no haya listado/fuente de padrón configurada.
+ * PADRON (Inc 58) se resuelve contra la última INGESTA MANUAL del padrón
+ * (ACTIVO → AL_CORRIENTE, SUSPENDIDO → INHABILITADO_PRESUNTO, ausente →
+ * ALERTA de verificación manual); sin ingesta → NO_DISPONIBLE.
  *
  * C9: el resultado NUNCA bloquea; solo marca y registra para que el
  * responsable decida.
@@ -505,9 +548,9 @@ export async function verificarCumplimiento(
         await verificarSancionesInternacionales(db, rfc, razonSocial, consultadoEn),
       );
     } else if (fuente === "PADRON") {
-      // [Inc 56] Padrón de Importadores: sin fuente configurada todavía →
-      // NO_DISPONIBLE con requisito visible de verificación manual (C9).
-      resultados.push(resultadoPadronNoConfigurado(rfc, consultadoEn));
+      // [Inc 58] Padrón de Importadores: evaluación REAL contra la última
+      // ingesta manual (ACTIVO/SUSPENDIDO/ausente); sin ingesta → NO_DISPONIBLE.
+      resultados.push(await verificarPadron(db, rfc, consultadoEn));
     } else if (esFuenteListado(fuente)) {
       resultados.push(await verificarContraListado(db, fuente, rfc, consultadoEn));
     } else {

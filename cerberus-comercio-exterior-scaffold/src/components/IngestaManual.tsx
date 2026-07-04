@@ -4,6 +4,9 @@
 // Propósito (Incremento 12 — Agente SERVICIO-12): Formulario client-side para
 //   que el ADMIN suba un CSV de cualquier fuente del enum FuenteVerificacion
 //   (incluida SANCIONES_INT: OFAC/SDN, ONU, UE, UK…) con emisor opcional.
+//   [Inc 58] Incluye PADRON (Padrón de Importadores, Módulo 2.1): CSV propio
+//   del despacho con columnas rfc,estado (ACTIVO|SUSPENDIDO); al elegirla se
+//   muestra la ayuda del formato (el endpoint valida fila por fila).
 //   Postea FormData a POST /api/admin/listados/manual, muestra el resultado
 //   { fuente, filas, sha256, origen } o el error, y refresca el Server
 //   Component contenedor (router.refresh) para actualizar la tabla de últimas
@@ -43,6 +46,7 @@ const ETIQUETAS_FUENTE: Record<string, string> = {
   OPINION_32D: "Opinión 32-D (cumplimiento de obligaciones)",
   CSD_17H: "CSD 17-H (sello digital)",
   SANCIONES_INT: "Sanciones internacionales (OFAC/SDN, ONU, UE, UK…)",
+  PADRON: "Padrón de Importadores (Módulo 2.1)", // [Inc 58]
 };
 
 type Props = {
@@ -158,6 +162,18 @@ export function IngestaManual({ esAdmin, fuentes }: Props) {
             ))}
           </select>
         </label>
+
+        {fuente === "PADRON" ? (
+          // [Inc 58] El SAT no publica CSV público del padrón: el despacho
+          // prepara el archivo, así que se le indica el formato exacto.
+          <p style={{ marginTop: "0.5rem", color: "#475569", fontSize: "0.85rem" }}>
+            Formato del CSV del padrón: encabezado <code>rfc,estado</code> y una
+            fila por RFC con estado <strong>ACTIVO</strong> o{" "}
+            <strong>SUSPENDIDO</strong> (tolerante a mayúsculas/minúsculas y
+            espacios). Una fila con RFC o estado inválido rechaza el archivo
+            completo indicando la línea.
+          </p>
+        ) : null}
 
         <label
           style={{
