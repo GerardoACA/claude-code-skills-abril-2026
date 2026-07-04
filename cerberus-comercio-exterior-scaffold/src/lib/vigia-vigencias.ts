@@ -123,13 +123,17 @@ export async function barridoVigencias(prisma: PrismaClient, ahora: Date = new D
 
   for (const tenantId of tenantIds) {
     try {
-      const items = await withTenant(tenantId, async (tx): Promise<ItemVencimiento[]> => {
-        const encontrados = await reunirVencimientos(tx, tenantId, ahora);
-        if (encontrados.length > 0) {
-          await registrarEventoVigencias(tx, tenantId, encontrados);
-        }
-        return encontrados;
-      });
+      const items = await withTenant(
+        tenantId,
+        async (tx): Promise<ItemVencimiento[]> => {
+          const encontrados = await reunirVencimientos(tx, tenantId, ahora);
+          if (encontrados.length > 0) {
+            await registrarEventoVigencias(tx, tenantId, encontrados);
+          }
+          return encontrados;
+        },
+        { timeout: 60_000, maxWait: 15_000 },
+      );
       resumen.tenants += 1;
       resumen.items.push(...items);
       resumen.vencidos += items.filter((i) => i.estado === "VENCIDO").length;

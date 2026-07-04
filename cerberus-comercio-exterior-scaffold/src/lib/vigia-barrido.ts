@@ -62,6 +62,8 @@ export interface ResumenBarrido {
   }[];
   /** Avisos a enrutar a destinatarios suscritos a CUMPLIMIENTO (Inc 36). */
   avisos: AvisoTenant[];
+  /** Errores por tenant (visibilidad en la respuesta del cron, no solo consola). */
+  errores: string[];
 }
 
 /** Detalle de una alerta emitida (elemento de ResumenBarrido.detalles). */
@@ -256,6 +258,7 @@ export async function barridoVigia(prisma: PrismaClient): Promise<ResumenBarrido
     alertas: 0,
     detalles: [],
     avisos: [],
+    errores: [],
   };
 
   // Ids de todos los tenants. La tabla `tenant` tiene FORCE RLS, así que se
@@ -294,6 +297,9 @@ export async function barridoVigia(prisma: PrismaClient): Promise<ResumenBarrido
 
           return parcial;
         },
+        // Barrido pesado (re-verificacion vs listados SAT) en UNA transaccion:
+        // timeout amplio para no abortar a medio tenant (el route permite 300s).
+        { timeout: 120_000, maxWait: 20_000 },
       );
 
       resumen.tenants += 1;
@@ -312,8 +318,10 @@ export async function barridoVigia(prisma: PrismaClient): Promise<ResumenBarrido
       }
     } catch (error) {
       // Un tenant que falla (p. ej. su transacción se revierte) no aborta el
-      // barrido de los demás.
+      // barrido de los demás. Se registra en consola Y en la respuesta.
+      const msg = error instanceof Error ? error.message : String(error);
       console.error(`[vigia] fallo el barrido del tenant ${tenantId}:`, error);
+      resumen.errores.push(`tenant ${tenantId}: ${msg}`);
     }
   }
 

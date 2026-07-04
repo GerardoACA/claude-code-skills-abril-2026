@@ -78,28 +78,45 @@ function assertTenantId(tenantId: unknown): asserts tenantId is string {
 // - Cinturon y tirantes: se reconfirma que el GUC quedo seteado antes de ejecutar
 //   trabajo; si no se aplico, se aborta (fail-closed).
 // -----------------------------------------------------------------------------
+/**
+ * Opciones de la transaccion. Los procesos de sistema (vigia/cron) que hacen
+ * trabajo pesado dentro de UNA transaccion (p. ej. re-verificar todos los
+ * clientes contra los listados SAT) necesitan un `timeout` mayor que el
+ * default de Prisma (5s), o la transaccion aborta a medio barrido.
+ */
+export interface WithTenantOptions {
+  /** Tope de duracion de la transaccion en ms (default Prisma: 5000). */
+  timeout?: number;
+  /** Espera maxima para obtener conexion del pool en ms (default Prisma: 2000). */
+  maxWait?: number;
+}
+
 export async function withTenant<T>(
   tenantId: string,
-  fn: (tx: Prisma.TransactionClient) => Promise<T>
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  options?: WithTenantOptions
 ): Promise<T> {
   assertTenantId(tenantId);
 
-  return prisma.$transaction(async (tx) => {
-    // Fija el contexto de tenant SOLO para esta transaccion (is_local = true).
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+  return prisma.$transaction(
+    async (tx) => {
+      // Fija el contexto de tenant SOLO para esta transaccion (is_local = true).
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
 
-    // Verifica que el GUC quedo en el valor esperado antes de ejecutar trabajo.
-    const rows = await tx.$queryRaw<{ tenant: string | null }[]>`
-      SELECT current_setting('app.tenant_id', true) AS tenant
-    `;
-    if (rows[0]?.tenant !== tenantId) {
-      throw new TenantContextError(
-        "No se pudo fijar app.tenant_id en la transaccion (contexto RLS ausente)."
-      );
-    }
+      // Verifica que el GUC quedo en el valor esperado antes de ejecutar trabajo.
+      const rows = await tx.$queryRaw<{ tenant: string | null }[]>`
+        SELECT current_setting('app.tenant_id', true) AS tenant
+      `;
+      if (rows[0]?.tenant !== tenantId) {
+        throw new TenantContextError(
+          "No se pudo fijar app.tenant_id en la transaccion (contexto RLS ausente)."
+        );
+      }
 
-    return fn(tx);
-  });
+      return fn(tx);
+    },
+    { maxWait: options?.maxWait ?? 2000, timeout: options?.timeout ?? 5000 }
+  );
 }
 
 // -----------------------------------------------------------------------------
