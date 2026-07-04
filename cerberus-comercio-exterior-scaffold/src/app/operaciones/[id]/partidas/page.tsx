@@ -20,6 +20,7 @@ import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
 import { PartidasContribuciones } from "@/components/PartidasContribuciones";
 import { PartidasIngestaCsv } from "@/components/PartidasIngestaCsv";
+import { PedimentoEncabezado } from "@/components/PedimentoEncabezado";
 
 // Depende de la sesión/DB: no debe pre-renderizarse en build.
 export const dynamic = "force-dynamic";
