@@ -19,6 +19,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
 import { PartidasContribuciones } from "@/components/PartidasContribuciones";
+import { PartidasIngestaCsv } from "@/components/PartidasIngestaCsv";
 
 // Depende de la sesión/DB: no debe pre-renderizarse en build.
 export const dynamic = "force-dynamic";
@@ -130,6 +131,9 @@ export default async function PartidasPage({
             <strong>tasa de IGI se captura a mano</strong>: el clasificador TIGIE
             es un conector aún no configurado.
           </div>
+
+          {/* Ingesta masiva de partidas por CSV (Incremento 39). */}
+          <PartidasIngestaCsv operacionId={operacion.id} />
 
           <PartidasContribuciones operacionId={operacion.id} />
         </>
