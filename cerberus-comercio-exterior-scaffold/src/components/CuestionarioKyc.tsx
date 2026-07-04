@@ -13,19 +13,8 @@
 
 "use client";
 
-import { useState, type CSSProperties, type ChangeEvent } from "react";
+import { useState, type CSSProperties } from "react";
 import type { PrecargaCuestionario } from "@/lib/kyc-precarga";
-
-/** ArrayBuffer -> base64 (para enviar el PDF al prellenado). */
-function bufABase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let bin = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(bin);
-}
 
 // --------------------------------------------------------------------------
 // Tipos del cliente y expediente que recibe el componente (server -> client).
@@ -138,77 +127,6 @@ export function CuestionarioKyc({ cliente, expediente, iniciales }: Props) {
   });
 
   const [custodio, setCustodio] = useState<string>(expediente?.custodio ?? "");
-
-  // [Inc 28] Prellenado por IA desde un documento (Constancia de Situación
-  // Fiscal u opinión): sube un PDF, el servidor extrae los datos y rellenan los
-  // campos. El responsable revisa y corrige antes de sellar.
-  const [prellenando, setPrellenando] = useState<boolean>(false);
-  const [prefillMsg, setPrefillMsg] = useState<string | null>(null);
-  const [prefillAlerta, setPrefillAlerta] = useState<string | null>(null);
-
-  async function prellenarDesdePdf(e: ChangeEvent<HTMLInputElement>): Promise<void> {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setPrefillMsg(null);
-    setPrefillAlerta(null);
-    setPrellenando(true);
-    try {
-      const pdfBase64 = bufABase64(await file.arrayBuffer());
-      const res = await fetch(`/api/clientes/${cliente.id}/kyc/prefill`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pdfBase64, nombreArchivo: file.name }),
-      });
-      const data: unknown = await res.json();
-      if (!res.ok) {
-        const msg =
-          typeof data === "object" && data !== null && "error" in data
-            ? String((data as { error: unknown }).error)
-            : "No se pudo leer el documento.";
-        setPrefillAlerta(msg);
-        return;
-      }
-      const r = data as {
-        tipoDocumento: string;
-        rfcCoincide: boolean;
-        datos: {
-          rfc: string | null;
-          razonSocial: string | null;
-          regimen: string | null;
-          actividadEconomica: string | null;
-          domicilio: string | null;
-        };
-        camposDetectados: string[];
-      };
-      // Aplicar solo los campos detectados (sin pisar lo ya escrito con vacío).
-      setDatosGenerales((prev) => ({
-        ...prev,
-        nombreComercial: r.datos.razonSocial ?? prev.nombreComercial,
-        actividadEconomica: r.datos.actividadEconomica ?? prev.actividadEconomica,
-      }));
-      if (r.datos.domicilio) {
-        setMaterialidad((prev) => ({ ...prev, domicilioOperacionesCE: r.datos.domicilio ?? prev.domicilioOperacionesCE }));
-      }
-      const nombreTipo =
-        r.tipoDocumento === "CONSTANCIA_SITUACION_FISCAL"
-          ? "Constancia de Situación Fiscal"
-          : r.tipoDocumento === "OPINION_CUMPLIMIENTO"
-            ? "Opinión de cumplimiento"
-            : "Documento";
-      setPrefillMsg(
-        `${nombreTipo} leído. Campos prellenados: ${r.camposDetectados.join(", ") || "ninguno"}. Revisa y corrige antes de sellar.`,
-      );
-      if (r.datos.rfc && !r.rfcCoincide) {
-        setPrefillAlerta(
-          `Atención: el RFC del documento (${r.datos.rfc}) NO coincide con el del cliente (${cliente.rfc}). ¿Es el archivo correcto?`,
-        );
-      }
-    } catch {
-      setPrefillAlerta("Error de red al procesar el documento.");
-    } finally {
-      setPrellenando(false);
-    }
-  }
 
   function irA(indice: number): void {
     setError(null);
@@ -411,46 +329,22 @@ export function CuestionarioKyc({ cliente, expediente, iniciales }: Props) {
         )}
       </div>
 
-      {/* [Inc 28] Prellenado por IA desde un documento (PDF). */}
+      {/* [Inc 48B] La precarga sale de la bóveda documental y del último
+          sellado (server-side, prop `iniciales`); ya no hay carga de PDF aquí. */}
       <div
         style={{
           marginBottom: "1.5rem",
           padding: "0.9rem 1.1rem",
-          background: "#eef2ff",
-          border: "1px solid #c7d2fe",
+          background: "#f8fafc",
+          border: "1px solid #e2e8f0",
           borderRadius: 8,
+          color: "#475569",
+          fontSize: "0.85rem",
         }}
       >
-        <strong style={{ color: "#3730a3" }}>Prellenar con IA desde un documento</strong>
-        <p style={{ margin: "0.25rem 0 0.5rem", color: "#475569", fontSize: "0.85rem" }}>
-          Sube la <strong>Constancia de Situación Fiscal</strong> o la{" "}
-          <strong>opinión de cumplimiento</strong> (PDF): el sistema extrae razón
-          social, RFC, régimen, actividad y domicilio, y rellena los campos que
-          detecte. Tú revisas y corriges antes de sellar.
-        </p>
-        <input
-          type="file"
-          accept="application/pdf,.pdf"
-          disabled={prellenando}
-          onChange={(e) => void prellenarDesdePdf(e)}
-          style={{
-            width: "100%",
-            padding: "0.5rem 0.65rem",
-            border: "1px solid #cbd5e1",
-            borderRadius: 6,
-            fontSize: "0.9rem",
-            boxSizing: "border-box",
-          }}
-        />
-        {prellenando && (
-          <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "#4338ca" }}>⏳ Leyendo el documento…</p>
-        )}
-        {prefillMsg && (
-          <p style={{ margin: "0.4rem 0 0", fontSize: "0.82rem", color: "#065f46" }}>✓ {prefillMsg}</p>
-        )}
-        {prefillAlerta && (
-          <p style={{ margin: "0.4rem 0 0", fontSize: "0.82rem", color: "#b45309" }}>⚠ {prefillAlerta}</p>
-        )}
+        Los datos se prellenan automáticamente desde los documentos del expediente
+        (súbelos arriba) y desde la última versión sellada. Revisa y corrige antes
+        de sellar.
       </div>
 
       {/* Navegación de secciones */}

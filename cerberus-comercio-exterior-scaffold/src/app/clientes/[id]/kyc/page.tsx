@@ -20,7 +20,12 @@ import {
   type ExpedienteResumen,
 } from "@/components/CuestionarioKyc";
 import { DocumentosKyc } from "@/components/DocumentosKyc";
-import { extraerInicialesDeSellado, type PrecargaCuestionario } from "@/lib/kyc-precarga";
+import {
+  combinarPrecargas,
+  extraerInicialesDeDocumento,
+  extraerInicialesDeSellado,
+  type PrecargaCuestionario,
+} from "@/lib/kyc-precarga";
 
 // Depende de la sesión/DB: no debe pre-renderizarse en build.
 export const dynamic = "force-dynamic";
@@ -86,10 +91,36 @@ export default async function KycPage({
         orderBy: { creadoEn: "desc" },
         select: { payloadRef: true },
       });
-      const iniciales =
+      const precargaSellado =
         selladoPrevio?.payloadRef != null
           ? extraerInicialesDeSellado(selladoPrevio.payloadRef)
           : null;
+
+      // [Inc 48B] Precarga desde la bóveda: los últimos eventos KYC_DOCUMENTO
+      // guardan payloadRef JSON con los datos extraídos por IA/OCR del
+      // documento subido. Los eventos VIEJOS (string plano "kyc-doc:...") no
+      // matchean el contains ni parsean: se ignoran a propósito. Entre
+      // documentos gana el más reciente; el sellado gana sobre todos.
+      const eventosDocs = await tx.bitacoraAuditoria.findMany({
+        where: {
+          accion: "KYC_DOCUMENTO",
+          payloadRef: { contains: `"clienteId":"${cliente.id}"` },
+        },
+        orderBy: { creadoEn: "desc" },
+        take: 10,
+        select: { payloadRef: true },
+      });
+      let precargaDocs: PrecargaCuestionario | null = null;
+      for (const evento of eventosDocs) {
+        if (evento.payloadRef == null) continue;
+        // El acumulado (más reciente) tiene prioridad sobre el siguiente.
+        precargaDocs = combinarPrecargas(
+          precargaDocs,
+          extraerInicialesDeDocumento(evento.payloadRef),
+        );
+      }
+
+      const iniciales = combinarPrecargas(precargaSellado, precargaDocs);
 
       return { cliente, expediente: expedienteResumen, iniciales };
     },

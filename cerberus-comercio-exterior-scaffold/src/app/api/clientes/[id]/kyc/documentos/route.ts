@@ -1,6 +1,6 @@
 // CERBERUS COMERCIO EXTERIOR — API bóveda documental del expediente KYC. NO es SIDF.
 // =============================================================================
-// Archivo:  src/app/api/clientes/[id]/kyc/documentos/route.ts  (Incremento 43)
+// Archivo:  src/app/api/clientes/[id]/kyc/documentos/route.ts  (Inc 43, 48A)
 // Propósito: bóveda documental del expediente KYC 1.4.14 — el expediente debe
 //            contener los DOCUMENTOS REALES del cliente (hallazgo de auditoría:
 //            hasta el Inc 42 solo se sellaba el cuestionario, sin documento).
@@ -10,7 +10,10 @@
 //          el binario CRUDO con sha256, lo sube al almacén WORM (ruta
 //          content-addressed kyc/<tenant>/<cliente>/<sha256>.<ext>) y registra
 //          el Documento ligado al ExpedienteKyc1414 (se crea mínimo si no
-//          existe) + evento encadenado KYC_DOCUMENTO en bitácora.
+//          existe) + evento encadenado KYC_DOCUMENTO en bitácora. Inc 48A:
+//          si el archivo es PDF, se le extraen datos KYC (unpdf +
+//          extraerDatosKyc) al momento de subirlo — van en el payloadRef del
+//          evento (JSON) y en la respuesta, para que la captura los reutilice.
 //
 // FAIL-SAFE (patrón del dossier, Inc 14): si el almacén WORM no está
 // configurado (BLOB_READ_WRITE_TOKEN ausente) o falla, el Documento se guarda
@@ -259,6 +262,11 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
   const sha256Documento = sha256(buffer);
   const nombreArchivo = archivo.name.trim().length > 0 ? archivo.name.trim() : "documento";
 
+  // 4b) Inc 48A — captura asistida: si es PDF, extraer datos KYC del propio
+  //     documento (fail-safe: nunca impide guardar; null si no se pudo).
+  const extraido: ExtraidoDocKyc =
+    archivo.type === "application/pdf" ? await extraerDePdf(buffer) : null;
+
   let salida: ResultadoPost;
   try {
     salida = await withTenantFromSession(session, async (tx): Promise<ResultadoPost> => {
@@ -334,7 +342,16 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
           tenantId,
           actor,
           accion: "KYC_DOCUMENTO",
-          payloadRef: `kyc-doc:${documento.id}:cliente:${cliente.id}:${tipo}`,
+          // Inc 48A — payloadRef en JSON (CONTRATO leído por la precarga KYC).
+          // Los eventos previos conservan el string plano "kyc-doc:...": el
+          // lector debe ser defensivo con ambos formatos.
+          payloadRef: JSON.stringify({
+            ref: "kyc-doc",
+            documentoId: documento.id,
+            clienteId: cliente.id,
+            tipo,
+            extraido,
+          }),
           sha256: sha256(payloadEvento),
           hashPrev,
           creadoEn: ahora,
@@ -374,6 +391,7 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
       sha256: salida.sha256,
       almacenado: salida.almacenado,
       detalle: salida.detalle,
+      extraido,
     },
     { status: 201 },
   );
