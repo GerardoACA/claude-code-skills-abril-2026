@@ -243,6 +243,9 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
     fontSize: "0.9rem",
     boxSizing: "border-box",
   };
+  /** Estilo del input: fondo verde suave si el campo se prellenó del PDF. */
+  const estiloCampo = (campo: keyof Campos): React.CSSProperties =>
+    prellenados.has(campo) ? { ...inputStyle, background: "#f0fdf4" } : inputStyle;
   const labelStyle: React.CSSProperties = {
     display: "block",
     fontSize: "0.8rem",
@@ -298,6 +301,92 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
           Capturar / editar encabezado
         </summary>
 
+        {/* Prellenado desde el PDF del pedimento (Inc 51): el capturista no
+            teclea lo que el documento ya dice; sube el PDF, se sugiere y él
+            revisa (C9). Fail-safe: si falla, la captura manual sigue igual. */}
+        <div
+          style={{
+            marginTop: "0.8rem",
+            padding: "0.6rem 0.9rem",
+            background: "#fffbeb",
+            border: "1px dashed #fcd34d",
+            borderRadius: 8,
+            fontSize: "0.85rem",
+            color: "#334155",
+          }}
+        >
+          <label style={{ display: "block", fontWeight: 600, marginBottom: "0.35rem", color: "#92400e" }}>
+            Prellenar desde el pedimento (PDF)
+          </label>
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            disabled={prefillCargando || enviando}
+            onChange={(e) => void prellenarDesdePdf(e)}
+            style={{ fontSize: "0.85rem" }}
+          />
+          {prefillCargando && (
+            <span style={{ marginLeft: "0.6rem", color: "#92400e" }}>Leyendo el PDF…</span>
+          )}
+          <div style={{ marginTop: "0.3rem", fontSize: "0.78rem", color: "#78716c" }}>
+            Los campos rellenados quedan en verde; revísalos y corrige antes de guardar.
+            Aquí no se almacena el archivo.
+          </div>
+        </div>
+
+        {/* Detectado en el PDF pero SIN campo en el modelo Pedimento actual:
+            se informa con honestidad (insumo para la futura migración). */}
+        {detectadosSinCampo.length > 0 && (
+          <div
+            style={{
+              marginTop: "0.6rem",
+              padding: "0.6rem 0.9rem",
+              background: "#eff6ff",
+              border: "1px solid #bfdbfe",
+              borderRadius: 8,
+              color: "#1e40af",
+              fontSize: "0.82rem",
+            }}
+          >
+            <strong>Detectado en el PDF (aún sin campo en el sistema):</strong>{" "}
+            {detectadosSinCampo.join(" · ")}
+          </div>
+        )}
+
+        {/* Advertencias de la extracción (datos descartados, etiquetas ausentes). */}
+        {prefillAdvertencias.length > 0 && (
+          <div
+            style={{
+              marginTop: "0.6rem",
+              padding: "0.6rem 0.9rem",
+              background: "#fffbeb",
+              border: "1px solid #fde68a",
+              borderRadius: 8,
+              color: "#92400e",
+              fontSize: "0.82rem",
+            }}
+          >
+            {prefillAdvertencias.map((a) => (
+              <div key={a}>⚠️ {a}</div>
+            ))}
+          </div>
+        )}
+        {prefillError !== null && (
+          <div
+            style={{
+              marginTop: "0.6rem",
+              padding: "0.6rem 0.9rem",
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: 8,
+              color: "#991b1b",
+              fontSize: "0.82rem",
+            }}
+          >
+            {prefillError}
+          </div>
+        )}
+
         {/* Ayuda: solo existen estos campos de encabezado en el modelo. */}
         <div
           style={{
@@ -324,7 +413,7 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
               disabled={enviando}
               onChange={cambiar("claveDePedimento")}
               placeholder="A1"
-              style={inputStyle}
+              style={estiloCampo("claveDePedimento")}
             />
           </div>
           <div>
@@ -334,7 +423,7 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
               disabled={enviando}
               onChange={cambiar("regimen")}
               placeholder="IMPORTACION DEFINITIVA"
-              style={inputStyle}
+              style={estiloCampo("regimen")}
             />
           </div>
           <div>
@@ -345,7 +434,7 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
               disabled={enviando}
               onChange={cambiar("tipoCambioUsd")}
               placeholder="17.50"
-              style={inputStyle}
+              style={estiloCampo("tipoCambioUsd")}
             />
           </div>
         </div>

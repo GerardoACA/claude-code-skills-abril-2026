@@ -66,6 +66,11 @@ describe("esTipoDocKyc (type guard)", () => {
     }
   });
 
+  it("Incremento 52: acepta el nuevo tipo COMPROBANTE_DOMICILIO_OPERACIONES_CE", () => {
+    expect(esTipoDocKyc("COMPROBANTE_DOMICILIO_OPERACIONES_CE")).toBe(true);
+    expect(TIPOS_DOC_KYC).toContain("COMPROBANTE_DOMICILIO_OPERACIONES_CE");
+  });
+
   it("rechaza valores fuera del catálogo", () => {
     expect(esTipoDocKyc("FACTURA")).toBe(false);
     expect(esTipoDocKyc("identificacion_oficial")).toBe(false);
@@ -81,5 +86,14 @@ describe("TIPO_DOC_KYC_ETIQUETA", () => {
       expect(typeof etiqueta).toBe("string");
       expect(etiqueta.trim().length).toBeGreaterThan(0);
     }
+  });
+
+  it("Incremento 52: etiquetas de los comprobantes de domicilio (fiscal vs. operaciones CE)", () => {
+    expect(TIPO_DOC_KYC_ETIQUETA.COMPROBANTE_DOMICILIO).toBe(
+      "Comprobante de domicilio fiscal"
+    );
+    expect(TIPO_DOC_KYC_ETIQUETA.COMPROBANTE_DOMICILIO_OPERACIONES_CE).toBe(
+      "Comprobante de domicilio de operaciones de comercio exterior (RGCE 1.4.14, 1ª Modif. 2026)"
+    );
   });
 });
