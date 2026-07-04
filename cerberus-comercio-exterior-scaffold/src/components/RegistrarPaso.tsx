@@ -7,6 +7,9 @@
 //            el tipo (acuse para MVE_E2/COVE/DODA, sello para PREVALIDACION,
 //            monto para PAGO); postea a /api/operaciones/[id]/pasos. Al recibir
 //            201 refresca el Server Component para reflejar el checklist.
+//            Inc 59: permite ADJUNTAR el archivo del acuse (PDF/XML, opcional);
+//            con archivo el POST va como multipart/form-data y el servidor lo
+//            sella en la bóveda del despacho ligándolo al paso.
 //
 // El sellado (sha256) y el encadenamiento de bitácora ocurren en el servidor;
 // aquí solo se capturan y envían los datos según el tipo.
@@ -61,6 +64,10 @@ export function RegistrarPaso({ operacionId }: RegistrarPasoProps) {
   const [sello, setSello] = useState<string>("");
   const [monto, setMonto] = useState<string>("");
   const [detalle, setDetalle] = useState<string>("");
+  // Inc 59: archivo del acuse (PDF/XML, opcional). `archivoKey` remonta el
+  // <input type="file"> al limpiar (el value de un file input no es controlable).
+  const [archivo, setArchivo] = useState<File | null>(null);
+  const [archivoKey, setArchivoKey] = useState<number>(0);
   const [enviando, setEnviando] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [exito, setExito] = useState<string | null>(null);
@@ -79,14 +86,30 @@ export function RegistrarPaso({ operacionId }: RegistrarPasoProps) {
     if (campo === "sello") payload.sello = sello.trim();
     if (campo === "monto") payload.monto = monto.trim();
 
+    // Con archivo adjunto el POST va como multipart/form-data (el servidor
+    // sella el acuse en la bóveda del despacho); sin archivo, JSON como antes.
+    let cuerpo: RequestInit;
+    if (archivo !== null) {
+      const form = new FormData();
+      form.set("tipo", payload.tipo);
+      if (payload.acuse !== undefined) form.set("acuse", payload.acuse);
+      if (payload.sello !== undefined) form.set("sello", payload.sello);
+      if (payload.monto !== undefined) form.set("monto", payload.monto);
+      if (payload.detalle !== undefined) form.set("detalle", payload.detalle);
+      form.set("file", archivo);
+      cuerpo = { method: "POST", body: form };
+    } else {
+      cuerpo = {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      };
+    }
+
     try {
       const res = await fetch(
         `/api/operaciones/${encodeURIComponent(operacionId)}/pasos`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        },
+        cuerpo,
       );
 
       if (!res.ok) {
@@ -108,11 +131,29 @@ export function RegistrarPaso({ operacionId }: RegistrarPasoProps) {
         return;
       }
 
-      setExito(`Paso ${ETIQUETA[tipo]} registrado y sellado.`);
+      // Mensaje de éxito: si el servidor selló el acuse documental, se dice.
+      let conAcuse = false;
+      try {
+        const data: unknown = await res.json();
+        conAcuse =
+          data !== null &&
+          typeof data === "object" &&
+          "documento" in data &&
+          (data as { documento: unknown }).documento !== null;
+      } catch {
+        // Sin cuerpo JSON: mensaje por defecto.
+      }
+      setExito(
+        conAcuse
+          ? `Paso ${ETIQUETA[tipo]} registrado y sellado, con acuse documental en la bóveda.`
+          : `Paso ${ETIQUETA[tipo]} registrado y sellado.`,
+      );
       setAcuse("");
       setSello("");
       setMonto("");
       setDetalle("");
+      setArchivo(null);
+      setArchivoKey((k) => k + 1);
       // Refrescar el Server Component para releer el checklist.
       router.refresh();
     } catch {
@@ -222,6 +263,25 @@ export function RegistrarPaso({ operacionId }: RegistrarPasoProps) {
           />
         </div>
       )}
+
+      <div style={{ marginBottom: "1rem" }}>
+        <label htmlFor="archivo-acuse" style={labelStyle}>
+          Archivo del acuse (PDF/XML, opcional)
+        </label>
+        <input
+          key={archivoKey}
+          id="archivo-acuse"
+          type="file"
+          accept="application/pdf,.pdf,application/xml,text/xml,.xml"
+          disabled={enviando}
+          onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
+          style={inputStyle}
+        />
+        <div style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "0.25rem" }}>
+          Se sella (sha256) y se resguarda en la bóveda del despacho, ligado a
+          este paso.
+        </div>
+      </div>
 
       <div style={{ marginBottom: "1rem" }}>
         <label htmlFor="detalle" style={labelStyle}>

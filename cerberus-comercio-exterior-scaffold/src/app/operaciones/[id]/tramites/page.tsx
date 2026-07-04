@@ -42,6 +42,20 @@ const ETIQUETA_PASO: Readonly<Record<TipoPaso, string>> = {
   DODA: "DODA",
 };
 
+// -----------------------------------------------------------------------------
+// Acuse documental (Inc 59): el route de pasos liga el Documento del acuse al
+// paso anotando en `detalle` la referencia "doc:<documentoId> sha256:<8>".
+// Aquí se detecta esa referencia para mostrar el indicador de acuse sellado.
+// -----------------------------------------------------------------------------
+const REF_DOC_EN_DETALLE = /doc:([A-Za-z0-9]+) sha256:([0-9a-f]{8})/;
+
+/** Extrae la referencia del acuse documental del detalle del paso, si existe. */
+function acuseDocumentalDe(detalle: string | null): { sha256Abrev: string } | null {
+  if (detalle === null) return null;
+  const m = REF_DOC_EN_DETALLE.exec(detalle);
+  return m === null ? null : { sha256Abrev: m[2] };
+}
+
 /** Paso registrado, ya serializado (monto Decimal -> string) para el cliente. */
 type PasoSerializado = {
   id: string;
@@ -234,6 +248,25 @@ export default async function TramitesPage({
                         {ultimo.detalle !== null && (
                           <div>Detalle: {ultimo.detalle}</div>
                         )}
+                        {(() => {
+                          // Inc 59: indicador del acuse documental sellado en
+                          // la bóveda (referencia doc:<id> sha256:<8> del detalle).
+                          const acuseDoc = acuseDocumentalDe(ultimo.detalle);
+                          return acuseDoc === null ? null : (
+                            <div
+                              style={{
+                                marginTop: "0.35rem",
+                                color: "#166534",
+                                fontWeight: 600,
+                              }}
+                            >
+                              📎 acuse sellado{" "}
+                              <code style={{ fontSize: "0.75rem" }}>
+                                sha256 {acuseDoc.sha256Abrev}…
+                              </code>
+                            </div>
+                          );
+                        })()}
                         <div style={{ color: "#94a3b8", marginTop: "0.25rem" }}>
                           Sellado{" "}
                           {new Date(ultimo.completadoEn).toLocaleString("es-MX")}

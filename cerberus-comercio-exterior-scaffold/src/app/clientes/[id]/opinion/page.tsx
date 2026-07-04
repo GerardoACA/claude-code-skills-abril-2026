@@ -1,10 +1,13 @@
 // CERBERUS COMERCIO EXTERIOR — página opinión 32-D ingestada (Server Component). NO es SIDF.
 // =============================================================================
-// Archivo:  src/app/clientes/[id]/opinion/page.tsx  (Incremento 22)
+// Archivo:  src/app/clientes/[id]/opinion/page.tsx  (Incrementos 22/57)
 // Propósito: Gestionar las opiniones de cumplimiento (32-D) que el cliente
 //            entrega impresas/PDF: explica el flujo, muestra el historial con su
 //            veredicto de autenticidad y el estado del cotejo en vivo, y monta el
-//            form de ingesta + validación.
+//            form de ingesta + validación. Inc 57: la celda de cotejo muestra el
+//            detalle abreviado TAMBIÉN en NO_DISPONIBLE (tooltip con el texto
+//            completo) y ofrece "Reintentar cotejo" por fila (con campo para
+//            pegar la URL del QR si nunca se detectó).
 //
 // Lectura tenant-scoped vía withTenantFromSession (RLS). C9: los veredictos
 // alertan, no bloquean.
@@ -16,6 +19,7 @@ import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
 import { urlSatDeDetalle } from "@/lib/cotejo-sat";
 import { OpinionUploadForm } from "@/components/OpinionUploadForm";
+import { RecotejarOpinionBoton } from "@/components/RecotejarOpinionBoton";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +59,14 @@ function resumenObservaciones(observaciones: string): string {
     // No es JSON.
   }
   return observaciones;
+}
+
+/** Abrevia el detalle del cotejo para la celda (el texto completo va en title). */
+function abreviarDetalle(detalle: string | null, maxLen = 90): string | null {
+  if (detalle === null) return null;
+  const plano = detalle.replace(/\s+/g, " ").trim();
+  if (plano.length === 0) return null;
+  return plano.length > maxLen ? `${plano.slice(0, maxLen - 1)}…` : plano;
 }
 
 type PageProps = { params: Promise<{ id: string }> };
@@ -202,7 +214,22 @@ export default async function OpinionPage({ params }: PageProps) {
                     </td>
                     <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.82rem" }}>{o.sentido}</td>
                     <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.78rem", color: "#475569" }}>
-                      {o.cotejoEnVivo}
+                      <span title={o.cotejoDetalle ?? undefined} style={{ fontWeight: 600 }}>
+                        {o.cotejoEnVivo}
+                      </span>
+                      {/* Inc 57: detalle abreviado SIEMPRE (también en NO_DISPONIBLE);
+                          el texto completo vive en el tooltip (title). */}
+                      {abreviarDetalle(o.cotejoDetalle) !== null && (
+                        <>
+                          <br />
+                          <span
+                            title={o.cotejoDetalle ?? undefined}
+                            style={{ fontSize: "0.72rem", color: "#64748b" }}
+                          >
+                            {abreviarDetalle(o.cotejoDetalle)}
+                          </span>
+                        </>
+                      )}
                       {urlCotejo !== null && (
                         <>
                           <br />
@@ -216,6 +243,11 @@ export default async function OpinionPage({ params }: PageProps) {
                           </a>
                         </>
                       )}
+                      <RecotejarOpinionBoton
+                        clienteId={cliente.id}
+                        opinionId={o.id}
+                        pedirUrl={urlCotejo === null}
+                      />
                     </td>
                     <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.82rem", color: "#475569" }}>
                       {resumenObservaciones(o.observaciones)}

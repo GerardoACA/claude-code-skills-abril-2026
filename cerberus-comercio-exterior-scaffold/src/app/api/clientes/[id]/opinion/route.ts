@@ -536,6 +536,7 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
         cotejo: { estado: cotejo.estado, detalle: cotejoDetalle, url: cotejo.urlSat },
         opinion32d,
         urlQrDetectada,
+        advertencias,
       };
     });
   } catch {
@@ -563,6 +564,7 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
       cotejo: salida.cotejo,
       opinion32d: salida.opinion32d,
       urlQrDetectada: salida.urlQrDetectada,
+      advertencias: salida.advertencias,
     },
     { status: 201 },
   );

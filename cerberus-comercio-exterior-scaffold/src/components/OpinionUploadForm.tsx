@@ -2,13 +2,17 @@
 
 // CERBERUS COMERCIO EXTERIOR — Form ingesta + validación de la opinión de cumplimiento. NO es SIDF.
 // =============================================================================
-// Archivo:  src/components/OpinionUploadForm.tsx  (Incrementos 22/26/29)
+// Archivo:  src/components/OpinionUploadForm.tsx  (Incrementos 22/26/29/57)
 // Propósito: Ingerir la opinión de cumplimiento (SAT 32-D o IMSS) y ver el
 //            veredicto de autenticidad + el cotejo del sello. Método PRINCIPAL:
 //            subir el PDF — el servidor extrae la Cadena Original y el Sello,
 //            detecta el emisor, valida y coteja (SAT: verificación criptográfica
 //            del sello con el certificado descargado por serie). Como respaldo
 //            manual (plegable) se puede pegar el texto o la URL del QR.
+//            Inc 57 (diagnóstico visible): el resultado SIEMPRE muestra la
+//            sección "Cotejo en el portal del SAT" — estado, advertencias del
+//            QR/cotejo y el enlace al validador (o el porqué de su ausencia).
+//            Que "no apareció nada" sea imposible.
 // =============================================================================
 
 import { useState, type ChangeEvent } from "react";
@@ -29,6 +33,8 @@ type RespuestaOk = {
   opinion32d: { resultado: string; detalle: string };
   /** URL del QR leída automáticamente del propio PDF (Inc 49B), si se detectó. */
   urlQrDetectada: string | null;
+  /** Diagnóstico visible (Inc 57): qué pasó con el QR y con el cotejo. */
+  advertencias?: string[];
 };
 
 const COLOR: Record<Veredicto, { fondo: string; borde: string; texto: string }> = {
@@ -247,24 +253,48 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
             <strong>{resultado.extraido.folio ?? "—"}</strong> · Sentido:{" "}
             <strong>{resultado.extraido.sentido}</strong>
           </p>
-          <p style={{ margin: "0.35rem 0 0", fontSize: "0.85rem" }}>
-            Cotejo: <strong>{resultado.cotejo.estado}</strong> — {resultado.cotejo.detalle}
-            {resultado.urlQrDetectada !== null && (
-              <> (QR leído automáticamente del PDF)</>
-            )}
-          </p>
-          {resultado.cotejo.url !== null && (
-            <p style={{ margin: "0.35rem 0 0", fontSize: "0.85rem" }}>
-              <a
-                href={resultado.cotejo.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: "#1d4ed8", fontWeight: 600 }}
-              >
-                Abrir cotejo en el portal del SAT →
-              </a>
+          {/* Inc 57: sección SIEMPRE visible — estado del cotejo, advertencias
+              del QR y enlace al portal (o el porqué de su ausencia). */}
+          <div
+            style={{
+              marginTop: "0.6rem",
+              padding: "0.6rem 0.8rem",
+              background: "rgba(255,255,255,0.65)",
+              border: "1px dashed #94a3b8",
+              borderRadius: 6,
+            }}
+          >
+            <strong style={{ fontSize: "0.85rem" }}>Cotejo en el portal del SAT</strong>
+            <p style={{ margin: "0.3rem 0 0", fontSize: "0.85rem" }}>
+              Estado: <strong>{resultado.cotejo.estado}</strong> — {resultado.cotejo.detalle}
+              {resultado.urlQrDetectada !== null && <> (QR leído automáticamente del PDF)</>}
             </p>
-          )}
+            {(resultado.advertencias ?? []).length > 0 && (
+              <ul style={{ margin: "0.3rem 0 0", paddingLeft: "1.25rem", fontSize: "0.8rem" }}>
+                {(resultado.advertencias ?? []).map((a, i) => (
+                  <li key={`adv-${i}`}>⚠ {a}</li>
+                ))}
+              </ul>
+            )}
+            {resultado.cotejo.url !== null ? (
+              <p style={{ margin: "0.35rem 0 0", fontSize: "0.85rem" }}>
+                <a
+                  href={resultado.cotejo.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "#1d4ed8", fontWeight: 600 }}
+                >
+                  Abrir cotejo en el portal del SAT →
+                </a>
+              </p>
+            ) : (
+              <p style={{ margin: "0.35rem 0 0", fontSize: "0.8rem" }}>
+                Sin enlace al validador: no se obtuvo la URL del QR. Puedes escanear el QR
+                de la opinión con tu teléfono y pegar la URL en &quot;Opciones manuales&quot;,
+                o usar &quot;Reintentar cotejo&quot; en el historial de abajo.
+              </p>
+            )}
+          </div>
           <p style={{ margin: "0.35rem 0 0", fontSize: "0.85rem" }}>
             Opinión 32-D → <strong>{resultado.opinion32d.resultado}</strong>. {resultado.opinion32d.detalle}
           </p>

@@ -1,16 +1,25 @@
 // CERBERUS COMERCIO EXTERIOR — pruebas de extracción de QR desde PDF. NO es SIDF.
 //
-// Cubren el Incremento 49A (src/lib/extraer-qr-pdf.ts):
+// Cubren los Incrementos 49A/57 (src/lib/extraer-qr-pdf.ts):
 //   1) filtrarUrlsSat: allowlist anti-SSRF pura (solo https + sat.gob.mx o
 //      subdominios; deduplica; lo demás genera advertencia).
 //   2) extraerQrDePdf es FAIL-SAFE: bytes basura / vacíos NUNCA lanzan y
 //      devuelven advertencia de "No se encontró QR".
 //   3) Fallback de texto: un PDF mínimo real (sin QR, con la URL del SAT en la
 //      capa de texto) devuelve la URL con la advertencia de que no vino de un QR.
+//   4) Inc 57 (diagnóstico visible + robustez): conversiones de raster puras
+//      (aRgba 1/3/4 canales, escalado 2x vecino más cercano, inversión RGBA) y
+//      advertencias ESPECÍFICAS cuando el PDF no aporta imágenes utilizables.
 
 import { describe, it, expect } from "vitest";
 
-import { extraerQrDePdf, filtrarUrlsSat } from "@/lib/extraer-qr-pdf";
+import {
+  aRgba,
+  escalar2xNearest,
+  extraerQrDePdf,
+  filtrarUrlsSat,
+  invertirRgba,
+} from "@/lib/extraer-qr-pdf";
 
 const URL_SAT =
   "https://siat.sat.gob.mx/app/qr/faces/pages/mobile/validadorqr.jsf?D1=10&D2=1&D3=OPC1234567_ABC101010AB1";
