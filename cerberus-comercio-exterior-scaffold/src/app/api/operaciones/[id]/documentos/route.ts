@@ -12,7 +12,10 @@
 //          content-addressed despacho/<tenant>/<operacion>/<sha256>.<ext>) y
 //          registra el Documento ligado al ExpedienteProbatorioDespacho (se
 //          crea mínimo si no existe) + evento encadenado DESPACHO_DOCUMENTO en
-//          bitácora. Captura asistida: si el archivo es XML se le corre
+//          bitácora. Desde el Inc 59 el algoritmo de guardado vive en
+//          src/lib/documentos-despacho-guardar.ts (COMPARTIDO con el route de
+//          pasos, que adjunta el acuse documental de cada paso).
+//          Captura asistida: si el archivo es XML se le corre
 //          extraerDatosCfdiXml al momento de subirlo — lo extraído (RFC
 //          emisor/receptor, total, conceptos resumidos, carta porte) va en el
 //          payloadRef del evento (JSON) y en la respuesta, para que la captura
@@ -33,31 +36,16 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
-import { sha256 } from "@/lib/probatoria/hash";
-import { canonicalizar } from "@/lib/probatoria/hash-chain";
-import { obtenerAlmacen } from "@/lib/almacen-worm";
 import { TIPOS_DOC_DESPACHO } from "@/lib/documentos-despacho-catalogo";
-import { extraerDatosCfdiXml } from "@/lib/extraer-cfdi-xml";
+import {
+  EXTENSION_POR_MIME_DESPACHO,
+  TAMANO_MAX_BYTES_DOC_DESPACHO,
+  extraerDeXmlDespacho,
+  guardarDocumentoDespacho,
+  type ExtraidoDocDespacho,
+} from "@/lib/documentos-despacho-guardar";
 
 export const runtime = "nodejs";
-
-/** Tamaño máximo del archivo subido (10 MB). */
-const TAMANO_MAX_BYTES = 10 * 1024 * 1024;
-
-// Retención del expediente del despacho: 5 años (plazo de conservación de la
-// documentación aduanera, art. 30 CFF / Ley Aduanera).
-const RETENCION_ANIOS_DESPACHO = 5;
-
-/** MIME permitidos (PDF/XML/imagen) → extensión de la ruta content-addressed. */
-const EXTENSION_POR_MIME: Readonly<Record<string, string>> = {
-  "application/pdf": "pdf",
-  "application/xml": "xml",
-  "text/xml": "xml",
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-  "image/heic": "heic",
-};
 
 /** Validación zod del campo de texto del multipart (tipo del catálogo). */
 const EsquemaCampos = z.object({
