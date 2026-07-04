@@ -6,9 +6,10 @@
 //            servidor y devuelve los datos para PRELLENAR el alta de cliente
 //            (RFC, razón social, domicilio, régimen, actividad). SOLO LEE: no
 //            persiste nada; el capturista revisa y confirma antes de dar de
-//            alta (C9: sugerir, nunca imponer). Mismo patrón que el prefill
-//            KYC de src/app/api/clientes/[id]/kyc/prefill/route.ts, sin
-//            cotejo de RFC porque el cliente AÚN NO EXISTE.
+//            alta (C9: sugerir, nunca imponer). Mismo patrón que tenía el
+//            prefill KYC (Inc 28, retirado en Inc 48B: el cuestionario ahora
+//            se precarga desde la bóveda documental), sin cotejo de RFC
+//            porque el cliente AÚN NO EXISTE.
 //
 // Multi-tenant: el tenantId proviene del JWT verificado (401 sin sesión). No
 // hay lectura/escritura de BD, así que no se abre transacción tenant-scoped.
