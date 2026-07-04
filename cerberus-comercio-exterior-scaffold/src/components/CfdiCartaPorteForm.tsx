@@ -13,16 +13,55 @@
 //            alerta con la lista; un borrador con errores NO se guarda). Al
 //            recibir 201 refresca el Server Component (router.refresh).
 //
+// [Inc 45] Cero re-tecleo (captura asistida, C9: se asiste, no se impone):
+//   - Acepta un prop `precarga` (lo que la BD ya sabe: RFC del tenant como
+//     emisor, RFC del cliente como receptor, primera Partida) e inicializa los
+//     campos con ello. Todo sigue EDITABLE y lo precargado se marca en verde.
+//   - <details> "Prellenar desde XML (CFDI)": sube un XML de factura real y se
+//     rellenan los campos VACÍOS con lo extraído (nunca pisa lo tecleado).
+//
 // La validación de negocio (CP 5 dígitos, placa oficial, claveProdServ 8
 // dígitos, fechas coherentes, RFC) vive en el servidor (lib carta-porte del
 // Agente MODELO-13); aquí solo se capturan y envían los datos.
 // =============================================================================
 
-import { useState, type ChangeEvent } from "react";
+import { useMemo, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
+import {
+  extraerDatosCfdiXml,
+  type DatosCfdiExtraidos,
+} from "@/lib/extraer-cfdi-xml";
+
+/** [Inc 45] Primera Partida de la operación (lo que la BD ya sabe de la mercancía). */
+export type PrecargaPartida = {
+  descripcion: string | null;
+  /** Fracción arancelaria declarada (puede traer puntos: 8471.30.01). */
+  fraccion: string | null;
+  nico: string | null;
+  umt: string | null;
+  /** Valor declarado, serializado como texto (Decimal de Prisma). */
+  valorDeclarado: string | null;
+};
+
+/**
+ * [Inc 45] Datos que la BD ya conoce para prellenar los forms de CFDI. Los arma
+ * el Server Component (dentro de withTenantFromSession) y lo consumen ambos
+ * forms: Carta Porte (emisor=tenant, receptor=cliente) y Comercio Exterior
+ * (emisor=cliente exportador, clave/tipo de cambio del último Pedimento).
+ */
+export type PrecargaCfdi = {
+  tenantRfc: string | null;
+  clienteRfc: string | null;
+  claveDePedimento: string | null;
+  /** Tipo de cambio MXN/USD del Pedimento más reciente, como texto. */
+  tipoCambioUsd: string | null;
+  partida: PrecargaPartida | null;
+};
 
 export type CfdiCartaPorteFormProps = {
   operacionId: string;
+  /** [Inc 45] Prellenado desde BD; opcional para no romper montajes existentes. */
+  precarga?: PrecargaCfdi;
 };
 
 /** Error de validación devuelto por el route (forma {campo, mensaje}). */
@@ -75,14 +114,53 @@ function aIso(valor: string): string {
   return Number.isNaN(fecha.getTime()) ? valor : fecha.toISOString();
 }
 
+/** [Inc 45] Fecha del XML (ISO SAT) => valor de <input type="datetime-local">. */
+function aDatetimeLocal(valor: string): string {
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(valor);
+  return m !== null ? `${m[1]}T${m[2]}` : valor;
+}
+
+/** [Inc 45] Estado inicial: campos base + lo que la BD ya sabe, marcado. */
+type EstadoInicial = { campos: Campos; marcados: ReadonlySet<keyof Campos> };
+
+function inicialDesdePrecarga(precarga?: PrecargaCfdi): EstadoInicial {
+  const campos: Campos = { ...CAMPOS_INICIALES };
+  const marcados = new Set<keyof Campos>();
+  const poner = (campo: keyof Campos, valor: string | null | undefined): void => {
+    if (typeof valor === "string" && valor.trim().length > 0) {
+      campos[campo] = valor;
+      marcados.add(campo);
+    }
+  };
+  if (precarga !== undefined) {
+    // Carta Porte: quien traslada (emisor) es el TENANT; el receptor es el cliente.
+    poner("emisorRfc", precarga.tenantRfc);
+    poner("receptorRfc", precarga.clienteRfc);
+    poner("descripcion", precarga.partida?.descripcion);
+    poner("claveUnidad", precarga.partida?.umt);
+  }
+  return { campos, marcados };
+}
+
 /** Texto de <input type="number"> => number (NaN si vacío; el server rechaza). */
 function aNumero(valor: string): number {
   return valor.trim().length === 0 ? Number.NaN : Number(valor);
 }
 
-export function CfdiCartaPorteForm({ operacionId }: CfdiCartaPorteFormProps) {
+export function CfdiCartaPorteForm({
+  operacionId,
+  precarga,
+}: CfdiCartaPorteFormProps) {
   const router = useRouter();
-  const [campos, setCampos] = useState<Campos>(CAMPOS_INICIALES);
+  // [Inc 45] Estado inicial derivado de lo que la BD ya sabe (cero re-tecleo).
+  const inicial = useMemo(() => inicialDesdePrecarga(precarga), [precarga]);
+  const [campos, setCampos] = useState<Campos>(inicial.campos);
+  // Campos precargados (BD o XML) aún sin editar a mano: se marcan en verde.
+  const [resaltados, setResaltados] = useState<ReadonlySet<keyof Campos>>(
+    inicial.marcados,
+  );
+  const [avisoXml, setAvisoXml] = useState<string | null>(null);
+  const [advertenciasXml, setAdvertenciasXml] = useState<string[]>([]);
   const [enviando, setEnviando] = useState<boolean>(false);
   const [errores, setErrores] = useState<ErrorValidacion[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +171,87 @@ export function CfdiCartaPorteForm({ operacionId }: CfdiCartaPorteFormProps) {
     (e: ChangeEvent<HTMLInputElement>): void => {
       const valor = e.target.value;
       setCampos((prev) => ({ ...prev, [campo]: valor }));
+      // Editado a mano: deja de considerarse "precargado".
+      setResaltados((prev) => {
+        if (!prev.has(campo)) return prev;
+        const sig = new Set(prev);
+        sig.delete(campo);
+        return sig;
+      });
     };
+
+  // [Inc 45] Rellena SOLO los campos vacíos con lo extraído del XML del CFDI:
+  // lo tecleado por el capturista nunca se pisa (captura asistida, C9).
+  function aplicarDatosXml(datos: DatosCfdiExtraidos): void {
+    const candidatos: Partial<Record<keyof Campos, string>> = {};
+    if (datos.emisorRfc !== undefined) candidatos.emisorRfc = datos.emisorRfc;
+    if (datos.receptorRfc !== undefined)
+      candidatos.receptorRfc = datos.receptorRfc;
+    const concepto = datos.conceptos[0];
+    if (concepto !== undefined) {
+      if (concepto.claveProdServ !== undefined)
+        candidatos.claveProdServ = concepto.claveProdServ;
+      if (concepto.descripcion !== undefined)
+        candidatos.descripcion = concepto.descripcion;
+      if (concepto.cantidad !== undefined)
+        candidatos.cantidad = String(concepto.cantidad);
+      if (concepto.claveUnidad !== undefined)
+        candidatos.claveUnidad = concepto.claveUnidad;
+    }
+    const cp = datos.cartaPorte;
+    if (cp !== undefined) {
+      if (cp.origen?.codigoPostal !== undefined)
+        candidatos.origenCodigoPostal = cp.origen.codigoPostal;
+      if (cp.origen?.fechaHora !== undefined)
+        candidatos.origenFechaSalida = aDatetimeLocal(cp.origen.fechaHora);
+      if (cp.destino?.codigoPostal !== undefined)
+        candidatos.destinoCodigoPostal = cp.destino.codigoPostal;
+      if (cp.destino?.fechaHora !== undefined)
+        candidatos.destinoFechaLlegada = aDatetimeLocal(cp.destino.fechaHora);
+      if (cp.placaVm !== undefined) candidatos.placaVm = cp.placaVm;
+      if (cp.configVehicular !== undefined)
+        candidatos.configVehicular = cp.configVehicular;
+      if (cp.pesoEnKg !== undefined) candidatos.pesoKg = String(cp.pesoEnKg);
+    }
+
+    const siguientes: Campos = { ...campos };
+    const llenados: (keyof Campos)[] = [];
+    for (const [campo, valor] of Object.entries(candidatos) as [
+      keyof Campos,
+      string,
+    ][]) {
+      if (siguientes[campo].trim().length === 0 && valor.trim().length > 0) {
+        siguientes[campo] = valor;
+        llenados.push(campo);
+      }
+    }
+    setCampos(siguientes);
+    if (llenados.length > 0) {
+      setResaltados((prev) => new Set([...prev, ...llenados]));
+    }
+    setAdvertenciasXml(datos.advertencias);
+    setAvisoXml(
+      llenados.length > 0
+        ? `Se prellenaron ${llenados.length} campo(s) desde el XML (solo los que estaban vacíos). Revise antes de capturar.`
+        : "El XML no aportó campos nuevos (los campos ya tenían valor o no se encontraron datos).",
+    );
+  }
+
+  function manejarArchivoXml(e: ChangeEvent<HTMLInputElement>): void {
+    const archivo = e.target.files?.[0];
+    // Permite volver a elegir el mismo archivo después.
+    e.target.value = "";
+    if (archivo === undefined) return;
+    const lector = new FileReader();
+    lector.onload = () => {
+      const texto = typeof lector.result === "string" ? lector.result : "";
+      aplicarDatosXml(extraerDatosCfdiXml(texto));
+    };
+    lector.onerror = () => {
+      setAvisoXml("No se pudo leer el archivo XML seleccionado.");
+    };
+    lector.readAsText(archivo);
+  }
 
   async function capturar(): Promise<void> {
     setEnviando(true);
@@ -180,7 +338,11 @@ export function CfdiCartaPorteForm({ operacionId }: CfdiCartaPorteFormProps) {
       setExito(
         "CFDI de traslado con Carta Porte 3.1 capturado y sellado como BORRADOR.",
       );
-      setCampos(CAMPOS_INICIALES);
+      // [Inc 45] Vuelve al estado precargado desde BD (no al formulario en blanco).
+      setCampos(inicial.campos);
+      setResaltados(inicial.marcados);
+      setAvisoXml(null);
+      setAdvertenciasXml([]);
       // Refrescar el Server Component para releer la lista de comprobantes.
       router.refresh();
     } catch {
@@ -223,22 +385,43 @@ export function CfdiCartaPorteForm({ operacionId }: CfdiCartaPorteFormProps) {
     type?: string;
   };
 
-  const campoInput = ({ campo, etiqueta, placeholder, type }: CampoDef) => (
-    <div key={campo}>
-      <label htmlFor={`cfdi-${campo}`} style={labelStyle}>
-        {etiqueta}
-      </label>
-      <input
-        id={`cfdi-${campo}`}
-        type={type ?? "text"}
-        value={campos[campo]}
-        disabled={enviando}
-        onChange={cambiar(campo)}
-        placeholder={placeholder}
-        style={inputStyle}
-      />
-    </div>
-  );
+  // [Inc 45] Los campos precargados (BD/XML) sin editar se marcan en verde.
+  const hintPrecargadoStyle: React.CSSProperties = {
+    marginLeft: "0.4rem",
+    fontSize: "0.7rem",
+    fontWeight: 600,
+    color: "#15803d",
+    background: "#f0fdf4",
+    border: "1px solid #bbf7d0",
+    borderRadius: 999,
+    padding: "0 0.4rem",
+    verticalAlign: "middle",
+  };
+
+  const campoInput = ({ campo, etiqueta, placeholder, type }: CampoDef) => {
+    const precargado = resaltados.has(campo);
+    return (
+      <div key={campo}>
+        <label htmlFor={`cfdi-${campo}`} style={labelStyle}>
+          {etiqueta}
+          {precargado && <span style={hintPrecargadoStyle}>precargado</span>}
+        </label>
+        <input
+          id={`cfdi-${campo}`}
+          type={type ?? "text"}
+          value={campos[campo]}
+          disabled={enviando}
+          onChange={cambiar(campo)}
+          placeholder={placeholder}
+          style={
+            precargado
+              ? { ...inputStyle, background: "#f0fdf4", borderColor: "#bbf7d0" }
+              : inputStyle
+          }
+        />
+      </div>
+    );
+  };
 
   return (
     <div
@@ -249,6 +432,50 @@ export function CfdiCartaPorteForm({ operacionId }: CfdiCartaPorteFormProps) {
         borderRadius: 10,
       }}
     >
+      {/* [Inc 45] Prellenado asistido desde un XML de CFDI real (nunca pisa lo tecleado). */}
+      <details
+        style={{
+          marginBottom: "1rem",
+          padding: "0.6rem 0.9rem",
+          background: "#eff6ff",
+          border: "1px solid #bfdbfe",
+          borderRadius: 8,
+          fontSize: "0.9rem",
+          color: "#1e3a8a",
+        }}
+      >
+        <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+          Prellenar desde XML (CFDI)
+        </summary>
+        <p style={{ margin: "0.5rem 0", fontSize: "0.85rem" }}>
+          Suba el XML de un CFDI (con o sin complemento Carta Porte): se
+          rellenan solo los campos vacíos; lo ya tecleado no se toca.
+        </p>
+        <input
+          type="file"
+          accept=".xml,text/xml,application/xml"
+          disabled={enviando}
+          onChange={manejarArchivoXml}
+        />
+        {avisoXml !== null && (
+          <p style={{ margin: "0.5rem 0 0", fontSize: "0.85rem" }}>{avisoXml}</p>
+        )}
+        {advertenciasXml.length > 0 && (
+          <ul
+            style={{
+              margin: "0.5rem 0 0",
+              paddingLeft: "1.25rem",
+              fontSize: "0.8rem",
+              color: "#92400e",
+            }}
+          >
+            {advertenciasXml.map((a, i) => (
+              <li key={i}>{a}</li>
+            ))}
+          </ul>
+        )}
+      </details>
+
       <h3 style={{ ...seccionStyle, marginTop: 0 }}>Comprobante (TRASLADO)</h3>
       <div style={filaStyle}>
         {campoInput({ campo: "emisorRfc", etiqueta: "RFC emisor", placeholder: "AAA010101AAA" })}

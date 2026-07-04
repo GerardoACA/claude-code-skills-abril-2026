@@ -11,15 +11,31 @@
 //            400 pinta la LISTA de errores {campo, mensaje} (C9). Al 201 refresca
 //            el Server Component (router.refresh).
 //
+// [Inc 45] Cero re-tecleo (captura asistida, C9: se asiste, no se impone):
+//   - Acepta un prop `precarga` con lo que la BD ya sabe (emisor = RFC del
+//     CLIENTE exportador, clave y tipo de cambio del último Pedimento, primera
+//     Partida) e inicializa los campos. Todo sigue editable y se marca en verde.
+//   - <details> "Prellenar desde XML (CFDI)": sube el XML de la factura real y
+//     se rellenan los campos VACÍOS (nunca pisa lo tecleado a mano).
+//
 // La validación de negocio (país 3 letras, fracción 8 dígitos, CP, valores)
 // vive en el servidor (lib comercio-exterior); aquí solo se capturan y envían.
 // =============================================================================
 
-import { useState, type ChangeEvent } from "react";
+import { useMemo, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
+import {
+  extraerDatosCfdiXml,
+  type DatosCfdiExtraidos,
+} from "@/lib/extraer-cfdi-xml";
+// [Inc 45] El contrato de precarga es COMPARTIDO con el form de Carta Porte
+// (lo arma el mismo Server Component en src/app/operaciones/[id]/cfdi/page.tsx).
+import type { PrecargaCfdi } from "@/components/CfdiCartaPorteForm";
 
 export type CfdiComercioExtFormProps = {
   operacionId: string;
+  /** [Inc 45] Prellenado desde BD; opcional para no romper montajes existentes. */
+  precarga?: PrecargaCfdi;
 };
 
 type ErrorValidacion = { campo: string; mensaje: string };
@@ -68,9 +84,58 @@ function aNumero(valor: string): number {
   return valor.trim().length === 0 ? Number.NaN : Number(valor);
 }
 
-export function CfdiComercioExtForm({ operacionId }: CfdiComercioExtFormProps) {
+/** [Inc 45] Fracción declarada (p. ej. "8471.30.01") => 8 dígitos para el form. */
+function fraccionA8Digitos(fraccion: string): string {
+  const digitos = fraccion.replace(/\D/g, "");
+  return digitos.length >= 8 ? digitos.slice(0, 8) : digitos;
+}
+
+/** [Inc 45] Estado inicial: campos base + lo que la BD ya sabe, marcado. */
+type EstadoInicial = { campos: Campos; marcados: ReadonlySet<keyof Campos> };
+
+function inicialDesdePrecarga(precarga?: PrecargaCfdi): EstadoInicial {
+  const campos: Campos = { ...CAMPOS_INICIALES };
+  const marcados = new Set<keyof Campos>();
+  const poner = (campo: keyof Campos, valor: string | null | undefined): void => {
+    if (typeof valor === "string" && valor.trim().length > 0) {
+      campos[campo] = valor;
+      marcados.add(campo);
+    }
+  };
+  if (precarga !== undefined) {
+    // Comercio Exterior: el EMISOR es el cliente exportador (no el tenant).
+    poner("emisorRfc", precarga.clienteRfc);
+    poner("claveDePedimento", precarga.claveDePedimento);
+    poner("tipoCambioUsd", precarga.tipoCambioUsd);
+    const partida = precarga.partida;
+    if (partida !== null && partida !== undefined) {
+      poner("noIdentificacion", partida.nico);
+      if (partida.fraccion !== null) {
+        poner("fraccionArancelaria", fraccionA8Digitos(partida.fraccion));
+      }
+      poner("unidadAduana", partida.umt);
+      // Valor declarado de la partida como punto de partida del valor en USD:
+      // el capturista lo revisa/ajusta (C9: se asiste, nunca se impone).
+      poner("valorDolares", partida.valorDeclarado);
+    }
+  }
+  return { campos, marcados };
+}
+
+export function CfdiComercioExtForm({
+  operacionId,
+  precarga,
+}: CfdiComercioExtFormProps) {
   const router = useRouter();
-  const [campos, setCampos] = useState<Campos>(CAMPOS_INICIALES);
+  // [Inc 45] Estado inicial derivado de lo que la BD ya sabe (cero re-tecleo).
+  const inicial = useMemo(() => inicialDesdePrecarga(precarga), [precarga]);
+  const [campos, setCampos] = useState<Campos>(inicial.campos);
+  // Campos precargados (BD o XML) aún sin editar a mano: se marcan en verde.
+  const [resaltados, setResaltados] = useState<ReadonlySet<keyof Campos>>(
+    inicial.marcados,
+  );
+  const [avisoXml, setAvisoXml] = useState<string | null>(null);
+  const [advertenciasXml, setAdvertenciasXml] = useState<string[]>([]);
   const [certificadoOrigen, setCertificadoOrigen] = useState<boolean>(false);
   const [enviando, setEnviando] = useState<boolean>(false);
   const [errores, setErrores] = useState<ErrorValidacion[]>([]);
@@ -82,7 +147,85 @@ export function CfdiComercioExtForm({ operacionId }: CfdiComercioExtFormProps) {
     (e: ChangeEvent<HTMLInputElement>): void => {
       const valor = e.target.value;
       setCampos((prev) => ({ ...prev, [campo]: valor }));
+      // Editado a mano: deja de considerarse "precargado".
+      setResaltados((prev) => {
+        if (!prev.has(campo)) return prev;
+        const sig = new Set(prev);
+        sig.delete(campo);
+        return sig;
+      });
     };
+
+  // [Inc 45] Rellena SOLO los campos vacíos con lo extraído del XML del CFDI.
+  // Los valores en USD solo se prellenan si la moneda del comprobante es USD.
+  function aplicarDatosXml(datos: DatosCfdiExtraidos): void {
+    const advertencias = [...datos.advertencias];
+    const candidatos: Partial<Record<keyof Campos, string>> = {};
+    if (datos.emisorRfc !== undefined) candidatos.emisorRfc = datos.emisorRfc;
+    if (datos.receptorRfc !== undefined)
+      candidatos.receptorRfc = datos.receptorRfc;
+    if (datos.tipoCambio !== undefined)
+      candidatos.tipoCambioUsd = String(datos.tipoCambio);
+
+    const esUsd = datos.moneda === "USD";
+    if (esUsd && datos.total !== undefined) {
+      candidatos.totalUsd = String(datos.total);
+    }
+    const concepto = datos.conceptos[0];
+    if (concepto !== undefined) {
+      if (concepto.noIdentificacion !== undefined)
+        candidatos.noIdentificacion = concepto.noIdentificacion;
+      if (concepto.cantidad !== undefined)
+        candidatos.cantidadAduana = String(concepto.cantidad);
+      if (esUsd && concepto.valorUnitario !== undefined)
+        candidatos.valorUnitarioAduana = String(concepto.valorUnitario);
+      if (esUsd && concepto.importe !== undefined)
+        candidatos.valorDolares = String(concepto.importe);
+    }
+    if (!esUsd && datos.moneda !== undefined) {
+      advertencias.push(
+        `La moneda del comprobante es ${datos.moneda} (no USD): los valores en dólares no se prellenaron.`,
+      );
+    }
+
+    const siguientes: Campos = { ...campos };
+    const llenados: (keyof Campos)[] = [];
+    for (const [campo, valor] of Object.entries(candidatos) as [
+      keyof Campos,
+      string,
+    ][]) {
+      if (siguientes[campo].trim().length === 0 && valor.trim().length > 0) {
+        siguientes[campo] = valor;
+        llenados.push(campo);
+      }
+    }
+    setCampos(siguientes);
+    if (llenados.length > 0) {
+      setResaltados((prev) => new Set([...prev, ...llenados]));
+    }
+    setAdvertenciasXml(advertencias);
+    setAvisoXml(
+      llenados.length > 0
+        ? `Se prellenaron ${llenados.length} campo(s) desde el XML (solo los que estaban vacíos). Revise antes de capturar.`
+        : "El XML no aportó campos nuevos (los campos ya tenían valor o no se encontraron datos).",
+    );
+  }
+
+  function manejarArchivoXml(e: ChangeEvent<HTMLInputElement>): void {
+    const archivo = e.target.files?.[0];
+    // Permite volver a elegir el mismo archivo después.
+    e.target.value = "";
+    if (archivo === undefined) return;
+    const lector = new FileReader();
+    lector.onload = () => {
+      const texto = typeof lector.result === "string" ? lector.result : "";
+      aplicarDatosXml(extraerDatosCfdiXml(texto));
+    };
+    lector.onerror = () => {
+      setAvisoXml("No se pudo leer el archivo XML seleccionado.");
+    };
+    lector.readAsText(archivo);
+  }
 
   async function capturar(): Promise<void> {
     setEnviando(true);
@@ -159,7 +302,11 @@ export function CfdiComercioExtForm({ operacionId }: CfdiComercioExtFormProps) {
       }
 
       setExito("CFDI de ingreso con Comercio Exterior 1.1 capturado y sellado como BORRADOR.");
-      setCampos(CAMPOS_INICIALES);
+      // [Inc 45] Vuelve al estado precargado desde BD (no al formulario en blanco).
+      setCampos(inicial.campos);
+      setResaltados(inicial.marcados);
+      setAvisoXml(null);
+      setAdvertenciasXml([]);
       setCertificadoOrigen(false);
       router.refresh();
     } catch {
@@ -195,26 +342,92 @@ export function CfdiComercioExtForm({ operacionId }: CfdiComercioExtFormProps) {
     margin: "1.25rem 0 0.5rem",
   };
 
+  // [Inc 45] Los campos precargados (BD/XML) sin editar se marcan en verde.
+  const hintPrecargadoStyle: React.CSSProperties = {
+    marginLeft: "0.4rem",
+    fontSize: "0.7rem",
+    fontWeight: 600,
+    color: "#15803d",
+    background: "#f0fdf4",
+    border: "1px solid #bbf7d0",
+    borderRadius: 999,
+    padding: "0 0.4rem",
+    verticalAlign: "middle",
+  };
+
   type CampoDef = { campo: keyof Campos; etiqueta: string; placeholder?: string; type?: string };
-  const campoInput = ({ campo, etiqueta, placeholder, type }: CampoDef) => (
-    <div key={campo}>
-      <label htmlFor={`ce-${campo}`} style={labelStyle}>
-        {etiqueta}
-      </label>
-      <input
-        id={`ce-${campo}`}
-        type={type ?? "text"}
-        value={campos[campo]}
-        disabled={enviando}
-        onChange={cambiar(campo)}
-        placeholder={placeholder}
-        style={inputStyle}
-      />
-    </div>
-  );
+  const campoInput = ({ campo, etiqueta, placeholder, type }: CampoDef) => {
+    const precargado = resaltados.has(campo);
+    return (
+      <div key={campo}>
+        <label htmlFor={`ce-${campo}`} style={labelStyle}>
+          {etiqueta}
+          {precargado && <span style={hintPrecargadoStyle}>precargado</span>}
+        </label>
+        <input
+          id={`ce-${campo}`}
+          type={type ?? "text"}
+          value={campos[campo]}
+          disabled={enviando}
+          onChange={cambiar(campo)}
+          placeholder={placeholder}
+          style={
+            precargado
+              ? { ...inputStyle, background: "#f0fdf4", borderColor: "#bbf7d0" }
+              : inputStyle
+          }
+        />
+      </div>
+    );
+  };
 
   return (
     <div style={{ padding: "1.25rem", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10 }}>
+      {/* [Inc 45] Prellenado asistido desde el XML de la factura real (nunca pisa lo tecleado). */}
+      <details
+        style={{
+          marginBottom: "1rem",
+          padding: "0.6rem 0.9rem",
+          background: "#eff6ff",
+          border: "1px solid #bfdbfe",
+          borderRadius: 8,
+          fontSize: "0.9rem",
+          color: "#1e3a8a",
+        }}
+      >
+        <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+          Prellenar desde XML (CFDI)
+        </summary>
+        <p style={{ margin: "0.5rem 0", fontSize: "0.85rem" }}>
+          Suba el XML del CFDI de la factura: se rellenan solo los campos
+          vacíos; lo ya tecleado no se toca. Los valores en dólares solo se
+          toman si la moneda del comprobante es USD.
+        </p>
+        <input
+          type="file"
+          accept=".xml,text/xml,application/xml"
+          disabled={enviando}
+          onChange={manejarArchivoXml}
+        />
+        {avisoXml !== null && (
+          <p style={{ margin: "0.5rem 0 0", fontSize: "0.85rem" }}>{avisoXml}</p>
+        )}
+        {advertenciasXml.length > 0 && (
+          <ul
+            style={{
+              margin: "0.5rem 0 0",
+              paddingLeft: "1.25rem",
+              fontSize: "0.8rem",
+              color: "#92400e",
+            }}
+          >
+            {advertenciasXml.map((a, i) => (
+              <li key={i}>{a}</li>
+            ))}
+          </ul>
+        )}
+      </details>
+
       <h3 style={{ ...seccionStyle, marginTop: 0 }}>Comprobante (INGRESO · exportación)</h3>
       <div style={filaStyle}>
         {campoInput({ campo: "emisorRfc", etiqueta: "RFC emisor (exportador)", placeholder: "AAA010101AAA" })}
