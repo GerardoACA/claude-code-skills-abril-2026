@@ -1,9 +1,11 @@
 // CERBERUS COMERCIO EXTERIOR — pruebas del catálogo documental KYC. NO es SIDF.
 // =============================================================================
-// Archivo:  tests/documentos-kyc.test.ts  (Incremento 43)
+// Archivo:  tests/documentos-kyc.test.ts  (Incrementos 43 y 52)
 // Propósito: verificar el catálogo de la bóveda documental del expediente KYC
 //            1.4.14 (src/lib/documentos-kyc-catalogo.ts): documentos requeridos
-//            por tipo de persona, type guard y etiquetas legibles.
+//            por tipo de persona, type guard y etiquetas legibles. Incremento 52:
+//            comprobante del domicilio de operaciones de comercio exterior
+//            obligatorio (RGCE 1.4.14, 1ª Modif. 2026, DOF 14-may-2026).
 // =============================================================================
 
 import { describe, it, expect } from "vitest";
@@ -15,7 +17,7 @@ import {
 } from "@/lib/documentos-kyc-catalogo";
 
 describe("documentosRequeridos", () => {
-  it("persona FÍSICA: exige identificación, comprobante de domicilio y RFC/CSF", () => {
+  it("persona FÍSICA: exige identificación, comprobante de domicilio fiscal y RFC/CSF", () => {
     const req = documentosRequeridos("FISICA");
     expect(req).toContain("IDENTIFICACION_OFICIAL");
     expect(req).toContain("COMPROBANTE_DOMICILIO");
@@ -26,18 +28,26 @@ describe("documentosRequeridos", () => {
     const req = documentosRequeridos("FISICA");
     expect(req).not.toContain("ACTA_CONSTITUTIVA");
     expect(req).not.toContain("PODER_REPRESENTANTE");
-    expect(req).toHaveLength(3);
+    expect(req).toHaveLength(4);
   });
 
   it("persona MORAL: exige además acta constitutiva y poder del representante", () => {
     const req = documentosRequeridos("MORAL");
     expect(req).toContain("ACTA_CONSTITUTIVA");
     expect(req).toContain("PODER_REPRESENTANTE");
-    // Y conserva los tres de base.
+    // Y conserva los de base.
     expect(req).toContain("IDENTIFICACION_OFICIAL");
     expect(req).toContain("COMPROBANTE_DOMICILIO");
     expect(req).toContain("RFC_CSF");
-    expect(req).toHaveLength(5);
+    expect(req).toHaveLength(6);
+  });
+
+  it("Incremento 52: el comprobante de domicilio de operaciones de comercio exterior es OBLIGATORIO para FÍSICA y MORAL (RGCE 1.4.14, 1ª Modif. 2026)", () => {
+    for (const tp of ["FISICA", "MORAL"] as const) {
+      expect(documentosRequeridos(tp)).toContain(
+        "COMPROBANTE_DOMICILIO_OPERACIONES_CE"
+      );
+    }
   });
 
   it("todo requerido pertenece al catálogo (nunca inventa tipos)", () => {

@@ -83,8 +83,117 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
     void cargar();
   }, [cargar]);
 
-  const cambiar = (campo: keyof Campos) => (e: ChangeEvent<HTMLInputElement>) =>
+  const cambiar = (campo: keyof Campos) => (e: ChangeEvent<HTMLInputElement>) => {
     setCampos((prev) => ({ ...prev, [campo]: e.target.value }));
+    // Al editar a mano, el campo deja de considerarse "prellenado del PDF".
+    setPrellenados((prev) => {
+      if (!prev.has(campo)) return prev;
+      const sig = new Set(prev);
+      sig.delete(campo);
+      return sig;
+    });
+  };
+
+  /** Formatea un importe detectado en el cuadro de liquidación del PDF. */
+  const fmtImporte = (n: number): string => `$${n.toLocaleString("es-MX")}`;
+
+  /** Sube el PDF del pedimento al prefill y rellena los campos que existen. */
+  async function prellenarDesdePdf(e: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const input = e.target;
+    const file = input.files?.[0];
+    if (!file) return;
+    setPrefillCargando(true);
+    setPrefillError(null);
+    setPrefillAdvertencias([]);
+    setDetectadosSinCampo([]);
+    setPrellenados(new Set());
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(
+        `/api/operaciones/${encodeURIComponent(operacionId)}/pedimento/prefill`,
+        { method: "POST", body: fd },
+      );
+      let datosCrudos: unknown = null;
+      try {
+        datosCrudos = await res.json();
+      } catch {
+        /* sin cuerpo */
+      }
+      const d = (datosCrudos ?? {}) as {
+        ok?: boolean;
+        detalle?: unknown;
+        error?: unknown;
+        datos?: DatosPrefill;
+        advertencias?: unknown;
+      };
+      if (!res.ok || d.ok !== true) {
+        const base =
+          (typeof d.detalle === "string" && d.detalle) ||
+          (typeof d.error === "string" && d.error) ||
+          `HTTP ${res.status}`;
+        setPrefillError(`⚠️ ${base}`);
+        return;
+      }
+      const datos: DatosPrefill = d.datos ?? {};
+
+      // 1) Rellenar los campos del form que EXISTEN en el modelo Pedimento.
+      const nuevos = new Set<keyof Campos>();
+      setCampos((prev) => {
+        const sig = { ...prev };
+        if (typeof datos.clavePedimento === "string" && datos.clavePedimento.length > 0) {
+          sig.claveDePedimento = datos.clavePedimento;
+          nuevos.add("claveDePedimento");
+        }
+        if (typeof datos.tipoCambio === "number" && Number.isFinite(datos.tipoCambio)) {
+          sig.tipoCambioUsd = String(datos.tipoCambio);
+          nuevos.add("tipoCambioUsd");
+        }
+        if (typeof datos.regimen === "string" && datos.regimen.length > 0) {
+          sig.regimen = datos.regimen;
+          nuevos.add("regimen");
+        }
+        return sig;
+      });
+      setPrellenados(nuevos);
+
+      // 2) Lo detectado que el modelo AÚN no puede guardar: se muestra con
+      //    honestidad (insumo para la futura migración), no se pierde en silencio.
+      const sinCampo: string[] = [];
+      if (typeof datos.numeroPedimento === "string") {
+        sinCampo.push(`Número de pedimento: ${datos.numeroPedimento}`);
+      }
+      if (typeof datos.aduana === "string") sinCampo.push(`Aduana: ${datos.aduana}`);
+      if (typeof datos.rfcImportador === "string") {
+        sinCampo.push(`RFC importador: ${datos.rfcImportador}`);
+      }
+      const c = datos.contribuciones;
+      if (c) {
+        const partes = [
+          typeof c.igi === "number" ? `IGI ${fmtImporte(c.igi)}` : null,
+          typeof c.dta === "number" ? `DTA ${fmtImporte(c.dta)}` : null,
+          typeof c.iva === "number" ? `IVA ${fmtImporte(c.iva)}` : null,
+          typeof c.prv === "number" ? `PRV ${fmtImporte(c.prv)}` : null,
+        ].filter((x): x is string => x !== null);
+        if (partes.length > 0) sinCampo.push(`Contribuciones: ${partes.join(", ")}`);
+      }
+      setDetectadosSinCampo(sinCampo);
+
+      const advertencias = Array.isArray(d.advertencias)
+        ? d.advertencias.filter((x): x is string => typeof x === "string")
+        : [];
+      setPrefillAdvertencias(advertencias);
+
+      if (nuevos.size === 0 && sinCampo.length === 0 && advertencias.length === 0) {
+        setPrefillError("⚠️ No se detectaron datos de pedimento en el PDF.");
+      }
+    } catch {
+      setPrefillError("⚠️ Error de red al leer el PDF del pedimento.");
+    } finally {
+      setPrefillCargando(false);
+      input.value = ""; // permite volver a subir el mismo archivo
+    }
+  }
 
   async function guardar(): Promise<void> {
     setEnviando(true);
