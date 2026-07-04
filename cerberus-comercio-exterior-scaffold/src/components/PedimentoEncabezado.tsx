@@ -2,7 +2,7 @@
 
 // CERBERUS COMERCIO EXTERIOR — encabezado del pedimento (client). NO es SIDF.
 // =============================================================================
-// Archivo:  src/components/PedimentoEncabezado.tsx  (Incremento 41)
+// Archivo:  src/components/PedimentoEncabezado.tsx  (Incremento 41; prefill 51)
 // Propósito: Mostrar el ENCABEZADO del pedimento vigente de la operación
 //            (clave, régimen, tipo de cambio; GET al montar) o "Sin pedimento
 //            capturado", y un <details> "Capturar / editar encabezado" con el
@@ -11,6 +11,11 @@
 //            la página tras el éxito para que todo refleje el encabezado.
 //            El modelo Pedimento NO tiene número de pedimento ni aduana: solo
 //            se capturan los campos que existen en el schema.
+//            Inc 51: "Prellenar desde el pedimento (PDF)" — sube el PDF a
+//            /pedimento/prefill, rellena los campos existentes (fondo verde,
+//            el usuario revisa: C9 sugerir, nunca imponer) y muestra en un
+//            recuadro informativo lo detectado que AÚN no tiene campo en el
+//            modelo (número de pedimento, aduana, RFC, contribuciones).
 // =============================================================================
 
 import { useCallback, useEffect, useState, type ChangeEvent } from "react";
@@ -30,12 +35,29 @@ type Encabezado = {
 const CAMPOS_INICIALES = { claveDePedimento: "A1", regimen: "IMPORTACION DEFINITIVA", tipoCambioUsd: "" };
 type Campos = typeof CAMPOS_INICIALES;
 
+/** Datos que devuelve /pedimento/prefill (extraídos del PDF del pedimento). */
+type DatosPrefill = {
+  numeroPedimento?: string;
+  clavePedimento?: string;
+  tipoCambio?: number;
+  aduana?: string;
+  rfcImportador?: string;
+  regimen?: string;
+  contribuciones?: { igi?: number; dta?: number; iva?: number; prv?: number };
+};
+
 export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
   const [encabezado, setEncabezado] = useState<Encabezado | null>(null);
   const [campos, setCampos] = useState<Campos>(CAMPOS_INICIALES);
   const [enviando, setEnviando] = useState<boolean>(false);
   const [exito, setExito] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Prellenado desde el PDF del pedimento (Inc 51).
+  const [prefillCargando, setPrefillCargando] = useState<boolean>(false);
+  const [prefillError, setPrefillError] = useState<string | null>(null);
+  const [prefillAdvertencias, setPrefillAdvertencias] = useState<string[]>([]);
+  const [detectadosSinCampo, setDetectadosSinCampo] = useState<string[]>([]);
+  const [prellenados, setPrellenados] = useState<ReadonlySet<keyof Campos>>(new Set());
 
   const url = `/api/operaciones/${encodeURIComponent(operacionId)}/pedimento/encabezado`;
 

@@ -20,6 +20,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
 import { BotonExporte } from "@/components/BotonExporte";
+import { DocumentosDespacho } from "@/components/DocumentosDespacho";
 
 // Depende de la sesión/DB: no debe pre-renderizarse en build.
 export const dynamic = "force-dynamic";
@@ -262,6 +263,17 @@ export default async function ExpedienteOperacionPage({
                 ))}
               </ul>
             )}
+          </section>
+
+          {/* Inc 50 — bóveda documental del despacho (checklist + subida). */}
+          <section style={{ marginTop: "1.75rem" }}>
+            <h2 style={{ fontSize: "1.1rem" }}>Documentos del despacho</h2>
+            <p style={{ color: "#475569", fontSize: "0.9rem" }}>
+              Resguarda aquí los documentos reales de la operación (pedimento,
+              factura, carta porte, COVE, DODA…): cada archivo se sella con
+              SHA-256, se guarda en la bóveda WORM y queda en la bitácora.
+            </p>
+            <DocumentosDespacho operacionId={resumen.operacionId} />
           </section>
 
           <section style={{ marginTop: "1.75rem" }}>
