@@ -15,7 +15,7 @@ import { withTenantFromSession } from "@/lib/tenant-context";
 
 export const dynamic = "force-dynamic";
 
-type Fuente = "ART_69" | "ART_69B" | "ART_69B_BIS" | "ART_49BIS" | "OPINION_32D" | "CSD_17H" | "SANCIONES_INT";
+type Fuente = "ART_69" | "ART_69B" | "ART_69B_BIS" | "ART_49BIS" | "OPINION_32D" | "CSD_17H" | "SANCIONES_INT" | "PADRON";
 type ResultadoVerif = "AL_CORRIENTE" | "NO_DISPONIBLE" | "ALERTA" | "INHABILITADO_PRESUNTO" | "INHABILITADO_DEFINITIVO";
 
 const FUENTES: { fuente: Fuente; etiqueta: string }[] = [
@@ -26,6 +26,7 @@ const FUENTES: { fuente: Fuente; etiqueta: string }[] = [
   { fuente: "OPINION_32D", etiqueta: "Opinión 32-D" },
   { fuente: "CSD_17H", etiqueta: "CSD 17-H" },
   { fuente: "SANCIONES_INT", etiqueta: "Sanciones internacionales" },
+  { fuente: "PADRON", etiqueta: "Padrón de Importadores" }, // [Inc 56] dictamen aduanal, Módulo 2.1
 ];
 
 type Semaforo = { color: string; fondo: string; borde: string };
@@ -199,7 +200,7 @@ export default async function PanoramaPage({ params }: { params: Promise<{ id: s
         </div>
       </section>
 
-      {/* Verificación de cumplimiento (6+1 fuentes) */}
+      {/* Verificación de cumplimiento (6+2 fuentes: +sanciones int. +padrón [Inc 56]) */}
       <section style={{ marginTop: "1.75rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <h2 style={{ fontSize: "1.15rem" }}>Verificación de cumplimiento</h2>
@@ -258,7 +259,7 @@ export default async function PanoramaPage({ params }: { params: Promise<{ id: s
         <div style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap", fontSize: "0.9rem" }}>
           <a href={url("kyc")} style={{ color: "#2563eb" }}>KYC 1.4.14 →</a>
           <a href={url("expediente-doble")} style={{ color: "#2563eb" }}>Expediente doble 3.1.42 →</a>
-          <a href={url("verificacion")} style={{ color: "#2563eb" }}>Verificación 69-B →</a>
+          {/* [Inc 56] "Verificación 69-B" quedó fusionada en Cumplimiento; /verificacion solo redirige. */}
           <a href={url("cumplimiento")} style={{ color: "#2563eb" }}>Cumplimiento / documentos →</a>
           <a href={url("opinion")} style={{ color: "#2563eb" }}>Opinión 32-D →</a>
           <a href={url("efirma")} style={{ color: "#2563eb" }}>e.firma →</a>
