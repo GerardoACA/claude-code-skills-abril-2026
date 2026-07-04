@@ -14,6 +14,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
+import { urlSatDeDetalle } from "@/lib/cotejo-sat";
 import { OpinionUploadForm } from "@/components/OpinionUploadForm";
 
 export const dynamic = "force-dynamic";
@@ -172,6 +173,9 @@ export default async function OpinionPage({ params }: PageProps) {
             <tbody>
               {datos.opiniones.map((o) => {
                 const c = COLOR[o.resultado];
+                // Inc 49B: cotejoDetalle lleva la URL del validador del SAT en
+                // formato parseable "url=…" → enlace directo al portal.
+                const urlCotejo = urlSatDeDetalle(o.cotejoDetalle);
                 return (
                   <tr key={o.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
                     <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.8rem", color: "#94a3b8", whiteSpace: "nowrap" }}>
@@ -199,6 +203,19 @@ export default async function OpinionPage({ params }: PageProps) {
                     <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.82rem" }}>{o.sentido}</td>
                     <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.78rem", color: "#475569" }}>
                       {o.cotejoEnVivo}
+                      {urlCotejo !== null && (
+                        <>
+                          <br />
+                          <a
+                            href={urlCotejo}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ color: "#2563eb", fontSize: "0.75rem" }}
+                          >
+                            Abrir cotejo en el portal del SAT →
+                          </a>
+                        </>
+                      )}
                     </td>
                     <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.82rem", color: "#475569" }}>
                       {resumenObservaciones(o.observaciones)}

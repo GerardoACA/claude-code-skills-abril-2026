@@ -23,6 +23,8 @@
 //
 // C9: el resultado alimenta la alerta de cumplimiento; nunca bloquea.
 
+import { veredictoCotejo } from "@/lib/cotejo-sat";
+
 /** Estado del cotejo (espeja el enum Prisma EstadoCotejoSat). */
 export type EstadoCotejoSat =
   | "NO_INTENTADO"
@@ -199,8 +201,19 @@ export class VerificadorOpinionSatQr implements VerificadorOpinionSat {
       const hayRfc = texto.includes(rfcN);
       const hayFolio = folioN !== null && folioN.length > 0 && texto.includes(folioN);
 
-      // La página del SAT debe mostrar al menos el folio o el RFC de la opinión.
-      if (!hayFolio && !hayRfc) {
+      // Heurística base (lógica PURA compartida, @/lib/cotejo-sat): la página
+      // del SAT debe mostrar al menos el folio o el RFC de la opinión; un body
+      // vacío degrada a NO_DISPONIBLE (jamás un falso veredicto).
+      const base = veredictoCotejo(html, input.rfc, input.folio);
+      if (base === "NO_DISPONIBLE") {
+        return {
+          ok: false,
+          estado: "NO_DISPONIBLE",
+          detalle: "La página de verificación del SAT respondió sin contenido legible.",
+          evidencia,
+        };
+      }
+      if (base === "DISCREPANCIA") {
         return {
           ok: true,
           estado: "DISCREPANCIA",

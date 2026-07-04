@@ -382,11 +382,27 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
       const analisis = hayTexto ? analizarOpinion(textoEfectivo, cliente.rfc) : null;
       const textoOriginal = hayTexto
         ? textoEfectivo
-        : `(Verificación por QR sin texto de opinión). URL: ${urlQr ?? "—"}`;
+        : `(Verificación por QR sin texto de opinión). URL: ${urlQrEfectiva ?? "—"}`;
 
       // Cotejo: sello criptográfico (SAT/IMSS) si hay cadena+sello+certificado;
-      // si no, cotejo en vivo por QR/URL del SAT o gateway configurado.
-      const cotejo = await cotejarOpinion(analisis, cliente.rfc, urlQr);
+      // si no, cotejo en vivo por QR/URL del SAT (la del capturista o la leída
+      // del propio PDF, Inc 49B) o gateway configurado.
+      const cotejo = await cotejarOpinion(analisis, cliente.rfc, urlQrEfectiva);
+
+      // Inc 49B: sellar la EVIDENCIA del cotejo en vivo (sha256 + WORM) y dejar
+      // la URL del validador en cotejoDetalle en formato parseable "url=…".
+      const evidenciaSellada =
+        cotejo.evidencia && cotejo.evidencia.cuerpo.length > 0
+          ? await sellarEvidenciaCotejo(tenantId, cotejo.evidencia)
+          : null;
+      let cotejoDetalle = cotejo.detalle;
+      if (cotejo.urlSat !== null) cotejoDetalle += ` [url=${cotejo.urlSat}]`;
+      if (evidenciaSellada !== null && cotejo.evidencia) {
+        cotejoDetalle +=
+          ` [evidencia HTTP ${cotejo.evidencia.httpStatus} sha256=${evidenciaSellada.sha256}` +
+          (evidenciaSellada.wormUrl !== null ? ` worm=${evidenciaSellada.wormUrl}` : "") +
+          `]`;
+      }
 
       // Sentido efectivo: el del documento si se detectó; si no, el que reportó
       // el SAT en el cotejo (clave para el flujo "solo QR").
@@ -422,7 +438,7 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
             selloPresente: analisis?.selloBase64 !== null && analisis?.selloBase64 !== undefined,
           }),
           cotejoEnVivo: cotejo.estado,
-          cotejoDetalle: cotejo.detalle,
+          cotejoDetalle,
           actor,
           creadoEn: ts,
         },
@@ -463,6 +479,11 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
         veredicto,
         folio: analisis?.folio ?? null,
         cotejo: cotejo.estado,
+        // Evidencia del cotejo en vivo (Inc 49B): URL del validador del SAT,
+        // huella sha256 del body respondido y su copia WORM (si se guardó).
+        cotejoUrl: cotejo.urlSat,
+        cotejoEvidenciaSha256: evidenciaSellada?.sha256 ?? null,
+        cotejoEvidenciaWormUrl: evidenciaSellada?.wormUrl ?? null,
         creadoEn: ts.toISOString(),
         hashPrev,
       });
@@ -492,8 +513,9 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
           sentido: sentidoEfectivo,
           fechaEmision: analisis?.fechaEmision ?? null,
         },
-        cotejo: { estado: cotejo.estado, detalle: cotejo.detalle },
+        cotejo: { estado: cotejo.estado, detalle: cotejoDetalle, url: cotejo.urlSat },
         opinion32d,
+        urlQrDetectada,
       };
     });
   } catch {
@@ -520,6 +542,7 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
       extraido: salida.extraido,
       cotejo: salida.cotejo,
       opinion32d: salida.opinion32d,
+      urlQrDetectada: salida.urlQrDetectada,
     },
     { status: 201 },
   );

@@ -25,8 +25,10 @@ type RespuestaOk = {
   resumen: string;
   checks: Check[];
   extraido: { emisor: string; rfc: string | null; folio: string | null; sentido: string; fechaEmision: string | null };
-  cotejo: { estado: string; detalle: string };
+  cotejo: { estado: string; detalle: string; url: string | null };
   opinion32d: { resultado: string; detalle: string };
+  /** URL del QR leída automáticamente del propio PDF (Inc 49B), si se detectó. */
+  urlQrDetectada: string | null;
 };
 
 const COLOR: Record<Veredicto, { fondo: string; borde: string; texto: string }> = {
@@ -246,8 +248,23 @@ export function OpinionUploadForm({ clienteId }: OpinionUploadFormProps) {
             <strong>{resultado.extraido.sentido}</strong>
           </p>
           <p style={{ margin: "0.35rem 0 0", fontSize: "0.85rem" }}>
-            Cotejo del sello: <strong>{resultado.cotejo.estado}</strong> — {resultado.cotejo.detalle}
+            Cotejo: <strong>{resultado.cotejo.estado}</strong> — {resultado.cotejo.detalle}
+            {resultado.urlQrDetectada !== null && (
+              <> (QR leído automáticamente del PDF)</>
+            )}
           </p>
+          {resultado.cotejo.url !== null && (
+            <p style={{ margin: "0.35rem 0 0", fontSize: "0.85rem" }}>
+              <a
+                href={resultado.cotejo.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "#1d4ed8", fontWeight: 600 }}
+              >
+                Abrir cotejo en el portal del SAT →
+              </a>
+            </p>
+          )}
           <p style={{ margin: "0.35rem 0 0", fontSize: "0.85rem" }}>
             Opinión 32-D → <strong>{resultado.opinion32d.resultado}</strong>. {resultado.opinion32d.detalle}
           </p>
