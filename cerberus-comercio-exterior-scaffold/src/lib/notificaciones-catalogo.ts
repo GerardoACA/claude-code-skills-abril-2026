@@ -14,6 +14,7 @@ export const CATEGORIAS = [
   "DESPACHO",
   "KYC",
   "SANCIONES",
+  "REPORTE_SEMANAL",
 ] as const;
 export type CategoriaNotificacion = (typeof CATEGORIAS)[number];
 
@@ -24,6 +25,7 @@ export const CATEGORIA_ETIQUETA: Readonly<Record<CategoriaNotificacion, string>>
   DESPACHO: "Despacho (operaciones, pedimentos)",
   KYC: "Expediente KYC 1.4.14",
   SANCIONES: "Sanciones internacionales",
+  REPORTE_SEMANAL: "Reporte semanal ejecutivo",
 };
 
 /** Canales de envío soportados. TELEGRAM es real; EMAIL queda enchufable. */
