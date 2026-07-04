@@ -54,66 +54,6 @@ const EsquemaCampos = z.object({
 
 type Params = { params: Promise<{ id: string }> };
 
-/**
- * Datos extraídos del XML subido (captura asistida — el capturista no teclea
- * lo que el documento ya dice). SOLO incluye los campos que el extractor
- * detectó; null si el archivo no es XML o no se reconoció ningún dato.
- */
-type ExtraidoDocDespacho = {
-  emisorRfc?: string;
-  receptorRfc?: string;
-  total?: number;
-  moneda?: string;
-  /** Conceptos resumidos: "descripción (cantidad unidad)" de cada partida. */
-  conceptos?: string[];
-  cartaPorte?: {
-    origenCp?: string;
-    destinoCp?: string;
-    placaVm?: string;
-  };
-} | null;
-
-/**
- * Corre el extractor CFDI/carta porte sobre el texto del XML y RESUME lo
- * encontrado. FAIL-SAFE: el extractor nunca lanza y un XML irreconocible
- * NUNCA impide guardar el documento — se devuelve null.
- */
-function extraerDeXml(texto: string): ExtraidoDocDespacho {
-  const datos = extraerDatosCfdiXml(texto);
-  const extraido: NonNullable<ExtraidoDocDespacho> = {};
-
-  if (datos.emisorRfc !== undefined) extraido.emisorRfc = datos.emisorRfc;
-  if (datos.receptorRfc !== undefined) extraido.receptorRfc = datos.receptorRfc;
-  if (datos.total !== undefined) extraido.total = datos.total;
-  if (datos.moneda !== undefined) extraido.moneda = datos.moneda;
-
-  const conceptos = datos.conceptos
-    .map((c) => {
-      const partes: string[] = [];
-      if (c.descripcion !== undefined) partes.push(c.descripcion);
-      if (c.cantidad !== undefined) {
-        partes.push(`(${c.cantidad}${c.claveUnidad !== undefined ? ` ${c.claveUnidad}` : ""})`);
-      }
-      return partes.join(" ");
-    })
-    .filter((r) => r.length > 0);
-  if (conceptos.length > 0) extraido.conceptos = conceptos;
-
-  if (datos.cartaPorte !== undefined) {
-    const cp: NonNullable<NonNullable<ExtraidoDocDespacho>["cartaPorte"]> = {};
-    if (datos.cartaPorte.origen?.codigoPostal !== undefined) {
-      cp.origenCp = datos.cartaPorte.origen.codigoPostal;
-    }
-    if (datos.cartaPorte.destino?.codigoPostal !== undefined) {
-      cp.destinoCp = datos.cartaPorte.destino.codigoPostal;
-    }
-    if (datos.cartaPorte.placaVm !== undefined) cp.placaVm = datos.cartaPorte.placaVm;
-    if (Object.keys(cp).length > 0) extraido.cartaPorte = cp;
-  }
-
-  return Object.keys(extraido).length > 0 ? extraido : null;
-}
-
 /** Actor legible de la sesión (mismo criterio que las rutas hermanas). */
 function actorDeSesion(session: unknown): string {
   const user = (session as { user?: { email?: unknown; name?: unknown } } | null)?.user;
@@ -256,7 +196,7 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
   if (archivo.size === 0) {
     return NextResponse.json({ error: "El archivo está vacío" }, { status: 400 });
   }
-  if (archivo.size > TAMANO_MAX_BYTES) {
+  if (archivo.size > TAMANO_MAX_BYTES_DOC_DESPACHO) {
     return NextResponse.json(
       { error: "El archivo excede el tamaño máximo de 10 MB" },
       { status: 413 },
@@ -265,7 +205,7 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
   // Algunos navegadores mandan los .xml sin MIME (o como text/plain): se
   // acepta también por la extensión del nombre.
   const extension =
-    EXTENSION_POR_MIME[archivo.type] ??
+    EXTENSION_POR_MIME_DESPACHO[archivo.type] ??
     (archivo.name.toLowerCase().endsWith(".xml") ? "xml" : undefined);
   if (extension === undefined) {
     return NextResponse.json(
@@ -274,16 +214,15 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
     );
   }
 
-  // 4) Bytes crudos → sha256 del CRUDO (sello reproducible contra el original).
+  // 4) Bytes crudos (el sha256 del CRUDO lo calcula el guardado compartido).
   const buffer = Buffer.from(await archivo.arrayBuffer());
-  const sha256Documento = sha256(buffer);
   const nombreArchivo = archivo.name.trim().length > 0 ? archivo.name.trim() : "documento";
 
   // 4b) Captura asistida: si es XML, extraer datos CFDI/carta porte del propio
   //     documento (fail-safe: nunca impide guardar; null si no se pudo). Los
   //     PDF quedan con extraido = null por ahora.
   const extraido: ExtraidoDocDespacho =
-    extension === "xml" ? extraerDeXml(buffer.toString("utf-8")) : null;
+    extension === "xml" ? extraerDeXmlDespacho(buffer.toString("utf-8")) : null;
 
   let salida: ResultadoPost;
   try {
@@ -295,99 +234,27 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
       });
       if (!operacion) return { tipo: "no-operacion" };
 
-      const ahora = new Date();
-      const retieneHasta = new Date(ahora);
-      retieneHasta.setFullYear(retieneHasta.getFullYear() + RETENCION_ANIOS_DESPACHO);
-
-      // b) Busca/CREA el ExpedienteProbatorioDespacho (1:1 por clienteId — el
-      //    expediente probatorio es del cliente y abarca sus operaciones). La
-      //    creación mínima cubre los obligatorios del modelo (tenantId +
-      //    clienteId) y fija custodio + retención; si ya existe, NO se
-      //    sobreescribe nada.
-      const expediente = await tx.expedienteProbatorioDespacho.upsert({
-        where: { clienteId: operacion.clienteId },
-        create: {
-          tenantId,
-          clienteId: operacion.clienteId,
-          custodio: actor,
-          retieneHasta,
-        },
-        update: {},
-        select: { id: true },
-      });
-
-      // c) Almacén WORM (ruta content-addressed, nunca sobrescribir). El
-      //    conector NUNCA lanza: sin token o con fallo, reporta ok:false y el
-      //    documento queda anclado SOLO por su sha256 (fail-safe honesto).
-      const ruta = `despacho/${tenantId}/${operacion.id}/${sha256Documento}.${extension}`;
-      const guardado = await obtenerAlmacen().guardar(ruta, buffer, archivo.type);
-
-      // d) Documento real de la bóveda, ligado al expediente probatorio Y a la
-      //    operación (FK directa del Inc 8, para listar por operación).
-      const documento = await tx.documento.create({
-        data: {
-          tenantId,
-          tipo,
-          sha256: sha256Documento,
-          wormUrl: guardado.ok ? (guardado.url ?? null) : null,
-          expedienteProbatorioId: expediente.id,
-          operacionId: operacion.id,
-          vence: retieneHasta,
-        },
-        select: { id: true },
-      });
-
-      // e) Evento encadenado en bitácora (sha256 del payload canónico + hashPrev).
-      const previo = await tx.bitacoraAuditoria.findFirst({
-        orderBy: { creadoEn: "desc" },
-        select: { sha256: true },
-      });
-      const hashPrev: string | null = previo?.sha256 ?? null;
-      const payloadEvento = canonicalizar({
+      // b) Algoritmo COMPARTIDO de la bóveda (Inc 59): sha256 + WORM +
+      //    Documento + evento encadenado DESPACHO_DOCUMENTO en bitácora.
+      const guardado = await guardarDocumentoDespacho(tx, {
         tenantId,
-        accion: "DESPACHO_DOCUMENTO",
         actor,
         operacionId: operacion.id,
-        expedienteId: expediente.id,
-        documentoId: documento.id,
+        clienteId: operacion.clienteId,
         tipo,
+        buffer,
+        extension,
+        contentType: archivo.type,
         nombreArchivo,
-        sha256Documento,
-        almacenado: guardado.ok,
-        almacenDetalle: guardado.detalle,
-        creadoEn: ahora.toISOString(),
-        hashPrev,
-      });
-      await tx.bitacoraAuditoria.create({
-        data: {
-          tenantId,
-          actor,
-          accion: "DESPACHO_DOCUMENTO",
-          // payloadRef en JSON (CONTRATO: mismo patrón que "kyc-doc", Inc 48A —
-          // los lectores deben ser defensivos con formatos previos).
-          payloadRef: JSON.stringify({
-            ref: "despacho-doc",
-            documentoId: documento.id,
-            operacionId: operacion.id,
-            tipo,
-            extraido,
-          }),
-          sha256: sha256(payloadEvento),
-          hashPrev,
-          creadoEn: ahora,
-        },
-        select: { id: true },
+        extraido,
       });
 
-      const detalle = guardado.ok
-        ? `Documento almacenado en la bóveda WORM y sellado (sha256 ${sha256Documento.slice(0, 12)}…).`
-        : `Documento sellado por sha256; sin copia en almacén WORM (${guardado.detalle}).`;
       return {
         tipo: "ok",
-        documentoId: documento.id,
-        sha256: sha256Documento,
-        almacenado: guardado.ok,
-        detalle,
+        documentoId: guardado.documentoId,
+        sha256: guardado.sha256,
+        almacenado: guardado.almacenado,
+        detalle: guardado.detalle,
       };
     });
   } catch {

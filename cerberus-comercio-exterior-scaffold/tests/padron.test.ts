@@ -27,7 +27,7 @@ describe("parsearCsvPadron", () => {
   });
 
   it("tolera BOM, encabezado en mayúsculas con espacios y líneas vacías", () => {
-    const csv = '﻿ RFC , ESTADO \n"ABC850101XY2","ACTIVO"\n\n';
+    const csv = '\uFEFF RFC , ESTADO \n"ABC850101XY2","ACTIVO"\n\n';
     expect(parsearCsvPadron(csv)).toEqual([
       { rfc: "ABC850101XY2", estado: "ACTIVO" },
     ]);

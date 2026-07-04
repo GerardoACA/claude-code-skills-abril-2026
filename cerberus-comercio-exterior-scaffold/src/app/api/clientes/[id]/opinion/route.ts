@@ -20,6 +20,14 @@
 // que la UI ofrezca "Abrir en el portal del SAT". Fail-safe TOTAL: ningún fallo
 // de QR/red/WORM hace fallar la ingesta (C9).
 //
+// Inc 57 (diagnóstico VISIBLE): el flujo SIEMPRE cuenta qué pasó con el QR y el
+// cotejo — las advertencias de extraerQrDePdf y del intento de cotejo se
+// acumulan, viajan en la respuesta JSON (campo `advertencias`) y su resumen se
+// persiste en cotejoDetalle (" [avisos: …]") aunque el estado sea
+// NO_DISPONIBLE. "No apareció nada" es imposible. El sellado de evidencia y la
+// construcción del detalle viven en @/lib/cotejo-evidencia (compartidos con el
+// re-cotejo api/clientes/[id]/opinion/[opinionId]/cotejar).
+//
 // Multi-tenant (convención DURA): el tenantId SIEMPRE proviene del JWT verificado,
 // NUNCA del body/params. Toda escritura corre dentro de withTenantFromSession.
 // =============================================================================
@@ -41,7 +49,7 @@ import {
 import { certificadosEmisor, verificarSelloOpinion } from "@/lib/sello-opinion";
 import { descargarCertificadoSat } from "@/lib/cert-sat-rccf";
 import { extraerQrDePdf } from "@/lib/extraer-qr-pdf";
-import { obtenerAlmacen } from "@/lib/almacen-worm";
+import { construirCotejoDetalle, sellarEvidenciaCotejo } from "@/lib/cotejo-evidencia";
 import { extractText, getDocumentProxy } from "unpdf";
 
 export const runtime = "nodejs";
@@ -79,15 +87,21 @@ async function textoDePdf(pdfBytes: Uint8Array): Promise<string> {
 
 /**
  * Lee el QR de la opinión desde el propio PDF (Inc 49B) y devuelve la primera
- * URL del SAT encontrada. Fail-safe: cualquier fallo devuelve null; la ingesta
- * jamás falla por esto (C9).
+ * URL del SAT encontrada JUNTO CON las advertencias del intento (Inc 57:
+ * diagnóstico visible, nada se traga). Fail-safe: cualquier fallo devuelve
+ * url null + advertencia; la ingesta jamás falla por esto (C9).
  */
-async function urlQrDesdePdf(pdfBytes: Uint8Array): Promise<string | null> {
+async function urlQrDesdePdf(
+  pdfBytes: Uint8Array,
+): Promise<{ url: string | null; advertencias: string[] }> {
   try {
-    const { urls } = await extraerQrDePdf(pdfBytes);
-    return urls.find((u) => urlEsDelSat(u)) ?? null;
+    const { urls, advertencias } = await extraerQrDePdf(pdfBytes);
+    return { url: urls.find((u) => urlEsDelSat(u)) ?? null, advertencias };
   } catch {
-    return null;
+    return {
+      url: null,
+      advertencias: ["Fallo inesperado al leer el QR del PDF; se continúa sin URL del validador."],
+    };
   }
 }
 
@@ -191,30 +205,6 @@ async function cotejarOpinion(
   return { ...live, urlSat };
 }
 
-/**
- * Sella la EVIDENCIA del cotejo en vivo (Inc 49B): sha256 del body respondido
- * por el SAT + copia inmutable en el almacén WORM (clave
- * cotejo/<tenant>/<sha256>.html) si hay Blob configurado. Fail-safe: nunca lanza.
- */
-async function sellarEvidenciaCotejo(
-  tenantId: string,
-  evidencia: EvidenciaCotejo,
-): Promise<{ sha256: string; wormUrl: string | null }> {
-  const huella = sha256(evidencia.cuerpo);
-  let wormUrl: string | null = null;
-  try {
-    const guardado = await obtenerAlmacen().guardar(
-      `cotejo/${tenantId}/${huella}.html`,
-      evidencia.cuerpo,
-      "text/html; charset=utf-8",
-    );
-    if (guardado.ok && guardado.url) wormUrl = guardado.url;
-  } catch {
-    // El almacén WORM jamás debe tumbar la ingesta; la huella sha256 basta.
-  }
-  return { sha256: huella, wormUrl };
-}
-
 type Params = { params: Promise<{ id: string }> };
 
 type ResultadoPost =
@@ -236,6 +226,8 @@ type ResultadoPost =
       opinion32d: { resultado: string; detalle: string };
       /** URL del QR leída del propio PDF (Inc 49B), si se detectó. */
       urlQrDetectada: string | null;
+      /** Diagnóstico visible (Inc 57): qué pasó con el QR y con el cotejo. */
+      advertencias: string[];
     };
 
 /** Normaliza un sentido reportado por el SAT al enum SentidoOpinion. */
@@ -364,7 +356,28 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
 
   // Inc 49B: si el capturista NO pegó la URL del QR pero sí hay PDF, leer el QR
   // del propio documento (extraer-qr-pdf, solo URLs *.sat.gob.mx). Fail-safe.
-  const urlQrDetectada = urlQr === undefined && pdfBytes ? await urlQrDesdePdf(pdfBytes) : null;
+  // Inc 57: las advertencias del intento se acumulan y se DEVUELVEN (nunca silencio).
+  const advertencias: string[] = [];
+  let urlQrDetectada: string | null = null;
+  if (urlQr === undefined && pdfBytes) {
+    const qr = await urlQrDesdePdf(pdfBytes);
+    urlQrDetectada = qr.url;
+    advertencias.push(...qr.advertencias);
+    if (qr.url === null) {
+      advertencias.push("QR no encontrado en el PDF: el cotejo en vivo no tiene URL del validador.");
+    }
+  }
+  // Si el capturista pegó una URL que NO es del SAT, se avisa (no se usa: anti-SSRF).
+  if (urlQr !== undefined && !urlEsDelSat(urlQr)) {
+    let hostAjeno = urlQr;
+    try {
+      hostAjeno = new URL(urlQr).hostname;
+    } catch {
+      // Se deja la URL cruda recortada.
+      hostAjeno = urlQr.slice(0, 80);
+    }
+    advertencias.push(`URL no-SAT descartada: ${hostAjeno} (se exige https y dominio sat.gob.mx).`);
+  }
   const urlQrEfectiva = urlQr ?? urlQrDetectada ?? undefined;
 
   let salida: ResultadoPost;
