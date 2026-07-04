@@ -12,6 +12,18 @@ Para TODA tarea sustantiva (nuevos módulos, incrementos, features), trabajar co
 4. Al terminar todos: integrar, correr verificación completa (tsc + suite entera
    + `npm run build`), commit + push del conjunto.
 
+## Principio DEFINITIVO: captura asistida (pedido por Gerardo)
+El capturista NO debe teclear lo que un documento ya dice ni lo que el sistema
+ya sabe. Para TODO paso de captura (construido o por construir):
+1. Ofrecer SIEMPRE la ingesta del documento fuente (PDF/imagen) — carta porte,
+   CSF, acta constitutiva, cédula de identificación fiscal, opinión 32-D, etc. —
+   y prellenar los campos con extracción IA/OCR (patrón de referencia:
+   src/lib/extraer-kyc-doc.ts + CuestionarioKyc.tsx: unpdf + extractores por
+   etiqueta acotados, el usuario revisa y confirma; C9: sugerir, nunca imponer).
+2. REUTILIZAR lo ya ingestado: si un dato vive en el expediente del cliente
+   (RFC, razón social, domicilio, régimen…) los forms nuevos lo precargan de la
+   BD, no lo vuelven a pedir.
+
 ## Contexto del proyecto
 - Producto: SaaS multi-tenant de cumplimiento aduanero/comercio exterior mexicano.
   Trabajar SOLO dentro de `cerberus-comercio-exterior-scaffold/`. NO es SIDF; no
