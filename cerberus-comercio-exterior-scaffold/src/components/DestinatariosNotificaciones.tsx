@@ -68,6 +68,8 @@ export function DestinatariosNotificaciones({ clienteId }: Props) {
   const [borrador, setBorrador] = useState<Borrador>(BORRADOR_VACIO);
   const [guardando, setGuardando] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [probandoId, setProbandoId] = useState<string | null>(null);
+  const [resultadoPrueba, setResultadoPrueba] = useState<{ id: string; ok: boolean; detalle: string } | null>(null);
 
   const base = useMemo(() => `/api/clientes/${encodeURIComponent(clienteId)}/destinatarios`, [clienteId]);
 
@@ -158,6 +160,25 @@ export function DestinatariosNotificaciones({ clienteId }: Props) {
       await recargar();
     } catch {
       setError("No se pudo cambiar el estado.");
+    }
+  }
+
+  async function probar(d: Destinatario) {
+    setProbandoId(d.id);
+    setResultadoPrueba(null);
+    try {
+      const res = await fetch(`${base}/${encodeURIComponent(d.id)}/probar`, { method: "POST" });
+      const data: unknown = await res.json();
+      const ok = typeof data === "object" && data !== null && "ok" in data && (data as { ok: unknown }).ok === true;
+      const detalle =
+        typeof data === "object" && data !== null && "detalle" in data
+          ? String((data as { detalle: unknown }).detalle)
+          : ok ? "Mensaje de prueba enviado." : "No se pudo enviar.";
+      setResultadoPrueba({ id: d.id, ok, detalle });
+    } catch {
+      setResultadoPrueba({ id: d.id, ok: false, detalle: "Error de red al probar el envío." });
+    } finally {
+      setProbandoId(null);
     }
   }
 
@@ -280,12 +301,20 @@ export function DestinatariosNotificaciones({ clienteId }: Props) {
                       ))}
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
+                  <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0, flexWrap: "wrap" }}>
+                    <button type="button" onClick={() => void probar(d)} disabled={probandoId === d.id} style={{ padding: "0.35rem 0.7rem", background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1d4ed8", borderRadius: 8, fontSize: "0.8rem", fontWeight: 600, cursor: probandoId === d.id ? "wait" : "pointer" }}>
+                      {probandoId === d.id ? "Enviando…" : "Probar envío"}
+                    </button>
                     <button type="button" onClick={() => empezarEdicion(d)} style={{ padding: "0.35rem 0.7rem", background: "#fff", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: "0.8rem", cursor: "pointer" }}>Editar</button>
                     <button type="button" onClick={() => void alternarActivo(d)} style={{ padding: "0.35rem 0.7rem", background: "#fff", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: "0.8rem", cursor: "pointer" }}>{d.activo ? "Desactivar" : "Activar"}</button>
                     <button type="button" onClick={() => void eliminar(d)} style={{ padding: "0.35rem 0.7rem", background: "#fff", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 8, fontSize: "0.8rem", cursor: "pointer" }}>Eliminar</button>
                   </div>
                 </div>
+                {resultadoPrueba !== null && resultadoPrueba.id === d.id && (
+                  <p style={{ margin: "0.6rem 0 0", fontSize: "0.8rem", fontWeight: 600, color: resultadoPrueba.ok ? "#065f46" : "#b91c1c" }}>
+                    {resultadoPrueba.ok ? "✅ " : "⚠️ "}{resultadoPrueba.detalle}
+                  </p>
+                )}
               </div>
             ))}
           </div>
