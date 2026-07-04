@@ -12,6 +12,18 @@ Para TODA tarea sustantiva (nuevos módulos, incrementos, features), trabajar co
 4. Al terminar todos: integrar, correr verificación completa (tsc + suite entera
    + `npm run build`), commit + push del conjunto.
 
+## Principio RECTOR (no opcional, pedido por Gerardo): cumplimiento normativo
+TODO desarrollo debe atender los requisitos de la materia aduanera/fiscal
+mexicana y sus reformas 2025-2026. Antes de construir un módulo:
+1. Consultar la base de conocimiento (`CERBERUS-COMERCIO-EXTERIOR/`), en
+   especial `00-investigacion/reporte-fiscalizacion-comercio-exterior-2025-2026.md`
+   y `00-investigacion/documentos-pedimento-art-36-36A.md`, y los dictámenes de
+   los agentes especialista/aduanal registrados en la conversación.
+2. Cuando el alcance normativo sea dudoso, correr PRIMERO un agente auditor
+   con criterio de agente aduanal y construir contra su matriz de requisitos.
+3. Lo que la base de conocimiento no cubra se marca "a confirmar por abogado"
+   (Gerardo) — nunca inventar reglas.
+
 ## Principio DEFINITIVO: captura asistida (pedido por Gerardo)
 El capturista NO debe teclear lo que un documento ya dice ni lo que el sistema
 ya sabe. Para TODO paso de captura (construido o por construir):
