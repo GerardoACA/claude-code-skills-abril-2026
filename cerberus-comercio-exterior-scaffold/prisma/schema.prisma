@@ -135,57 +135,60 @@ enum MotivoCancelacion {
 /// Tenant = agencia aduanal / agente (rol LFPDPPP: Responsable). Modelo raíz:
 /// NO lleva tenantId. Todo lo demás cuelga de aquí.
 model Tenant {
-  id          String   @id @default(cuid())
+  id            String   @id @default(cuid())
   /// Nombre comercial / razón social.
-  nombre      String
+  nombre        String
   /// RFC del tenant.
-  rfc         String   @unique
-  activo      Boolean  @default(true)
-  creadoEn    DateTime @default(now()) @map("creado_en")
+  rfc           String   @unique
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
 
-  usuarios                  Usuario[]
-  contratosEncargo          ContratoEncargo[]
-  clientes                  Cliente[]
-  patentes                  Patente[]
-  personasFisicas           PersonaFisicaAutorizada[]
-  encargosConferidos        EncargoConferido[]
-  expedientesKyc            ExpedienteKyc1414[]
-  expedientesProbatorio     ExpedienteProbatorioDespacho[]
-  expedientesDoble          ExpedienteDoble3142[]
-  documentos                Documento[]
-  operaciones               Operacion[]
-  partidas                  Partida[]
-  alertas69b                Alerta69b[]
-  versionesAviso            VersionAviso[]
-  consentimientos           ConsentimientoDatos[]
-  bitacora                  BitacoraAuditoria[]
-  verificaciones            VerificacionCumplimiento[]
-  pasos                     PasoDespacho[]
-  comprobantes              ComprobanteCfdi[]
-  overrides                 OverrideAlerta[]
-  efirmasEntregadas         EfirmaEntregada[]
-  opinionesCumplimiento     OpinionCumplimientoIngestada[]
-  pedimentos                Pedimento[]
-  destinatarios             Destinatario[]
+  usuarios              Usuario[]
+  contratosEncargo      ContratoEncargo[]
+  clientes              Cliente[]
+  patentes              Patente[]
+  personasFisicas       PersonaFisicaAutorizada[]
+  encargosConferidos    EncargoConferido[]
+  expedientesKyc        ExpedienteKyc1414[]
+  expedientesProbatorio ExpedienteProbatorioDespacho[]
+  expedientesDoble      ExpedienteDoble3142[]
+  documentos            Documento[]
+  operaciones           Operacion[]
+  partidas              Partida[]
+  alertas69b            Alerta69b[]
+  versionesAviso        VersionAviso[]
+  consentimientos       ConsentimientoDatos[]
+  bitacora              BitacoraAuditoria[]
+  verificaciones        VerificacionCumplimiento[]
+  pasos                 PasoDespacho[]
+  comprobantes          ComprobanteCfdi[]
+  overrides             OverrideAlerta[]
+  efirmasEntregadas     EfirmaEntregada[]
+  opinionesCumplimiento OpinionCumplimientoIngestada[]
+  pedimentos            Pedimento[]
+  destinatarios         Destinatario[]
+  inventariosImmex      InventarioImmex[]
+  materialesImmex       MaterialImmex[]
+  movimientosImmex      MovimientoImmex[]
 
   @@map("tenant")
 }
 
 /// Usuario operador del tenant. Autenticación vía NextAuth (JWT con tenantId+rol).
 model Usuario {
-  id         String     @id @default(cuid())
-  tenantId   String     @map("tenant_id")
-  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  email      String
-  nombre     String
-  rol        RolUsuario @default(OPERADOR)
+  email         String
+  nombre        String
+  rol           RolUsuario @default(OPERADOR)
   /// Hash de credencial (si aplica autenticación local).
-  passwordHash String?  @map("password_hash")
-  activo     Boolean    @default(true)
-  creadoEn   DateTime   @default(now()) @map("creado_en")
-  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+  passwordHash  String?    @map("password_hash")
+  activo        Boolean    @default(true)
+  creadoEn      DateTime   @default(now()) @map("creado_en")
+  actualizadoEn DateTime   @updatedAt @map("actualizado_en")
 
   @@unique([tenantId, email])
   @@index([tenantId, rol])
@@ -195,9 +198,9 @@ model Usuario {
 /// Contrato de encargo LFPDPPP por tenant (instrucciones, subencargados).
 /// Condición bloqueante del panel (Fase 0).
 model ContratoEncargo {
-  id            String   @id @default(cuid())
-  tenantId      String   @map("tenant_id")
-  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   /// Etiqueta de versión del contrato, p. ej. "v1".
   version       String
@@ -205,10 +208,10 @@ model ContratoEncargo {
   instrucciones String
   /// Subencargados autorizados (lista libre / JSON serializado).
   subencargados String?
-  vigenteDesde  DateTime @default(now()) @map("vigente_desde")
+  vigenteDesde  DateTime  @default(now()) @map("vigente_desde")
   vigenteHasta  DateTime? @map("vigente_hasta")
   /// SHA-256 del cuerpo del contrato (prueba de qué se firmó).
-  sha256        String?  @db.Char(64)
+  sha256        String?   @db.Char(64)
 
   @@unique([tenantId, version])
   @@index([tenantId, vigenteHasta])
@@ -221,30 +224,31 @@ model ContratoEncargo {
 
 /// Cliente / Importador del tenant.
 model Cliente {
-  id         String    @id @default(cuid())
-  tenantId   String    @map("tenant_id")
-  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  rfc        String
-  razonSocial String   @map("razon_social")
+  rfc           String
+  razonSocial   String    @map("razon_social")
   /// Estado del Certificado de Sello Digital (CFF 17-H / 17-H Bis).
-  estadoCsd  EstadoCsd @default(ACTIVO) @map("estado_csd")
+  estadoCsd     EstadoCsd @default(ACTIVO) @map("estado_csd")
   /// Etapa frente al art. 69-B CFF.
-  etapa69b   Etapa69b  @default(NINGUNA) @map("etapa_69b")
-  creadoEn   DateTime  @default(now()) @map("creado_en")
-  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+  etapa69b      Etapa69b  @default(NINGUNA) @map("etapa_69b")
+  creadoEn      DateTime  @default(now()) @map("creado_en")
+  actualizadoEn DateTime  @updatedAt @map("actualizado_en")
 
-  expedienteKyc        ExpedienteKyc1414?
-  expedienteProbatorio ExpedienteProbatorioDespacho?
-  expedienteDoble      ExpedienteDoble3142?
-  encargosConferidos   EncargoConferido[]
-  operaciones          Operacion[]
-  alertas69b           Alerta69b[]
-  verificaciones       VerificacionCumplimiento[]
-  overrides            OverrideAlerta[]
-  efirmasEntregadas    EfirmaEntregada[]
+  expedienteKyc         ExpedienteKyc1414?
+  expedienteProbatorio  ExpedienteProbatorioDespacho?
+  expedienteDoble       ExpedienteDoble3142?
+  encargosConferidos    EncargoConferido[]
+  operaciones           Operacion[]
+  alertas69b            Alerta69b[]
+  verificaciones        VerificacionCumplimiento[]
+  overrides             OverrideAlerta[]
+  efirmasEntregadas     EfirmaEntregada[]
   opinionesCumplimiento OpinionCumplimientoIngestada[]
-  destinatarios        Destinatario[]
+  destinatarios         Destinatario[]
+  inventarioImmex       InventarioImmex?
 
   @@unique([tenantId, rfc])
   @@index([tenantId, estadoCsd])
@@ -255,15 +259,15 @@ model Cliente {
 /// Patente aduanal del tenant. Atribución por acto (acto crítico se firma y se
 /// atribuye a una persona física + patente).
 model Patente {
-  id        String   @id @default(cuid())
-  tenantId  String   @map("tenant_id")
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  numero    String
+  numero   String
   /// Titular de la patente (nombre legible).
-  titular   String?
-  activa    Boolean  @default(true)
-  creadoEn  DateTime @default(now()) @map("creado_en")
+  titular  String?
+  activa   Boolean  @default(true)
+  creadoEn DateTime @default(now()) @map("creado_en")
 
   personasFisicas PersonaFisicaAutorizada[]
   operaciones     Operacion[]
@@ -275,20 +279,20 @@ model Patente {
 
 /// Persona física autorizada (mandatario / agente) ligada a una patente.
 model PersonaFisicaAutorizada {
-  id         String   @id @default(cuid())
-  tenantId   String   @map("tenant_id")
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  patenteId  String   @map("patente_id")
-  patente    Patente  @relation(fields: [patenteId], references: [id], onDelete: Cascade)
+  patenteId String  @map("patente_id")
+  patente   Patente @relation(fields: [patenteId], references: [id], onDelete: Cascade)
 
-  nombre     String
-  rfc        String?
-  curp       String?
+  nombre      String
+  rfc         String?
+  curp        String?
   /// Identificador de la e.firma (FIEL) usada para atribuir actos.
-  efirmaSerie String? @map("efirma_serie")
-  activa     Boolean  @default(true)
-  creadoEn   DateTime @default(now()) @map("creado_en")
+  efirmaSerie String?  @map("efirma_serie")
+  activa      Boolean  @default(true)
+  creadoEn    DateTime @default(now()) @map("creado_en")
 
   @@index([tenantId, patenteId])
   @@map("persona_fisica_autorizada")
@@ -296,25 +300,25 @@ model PersonaFisicaAutorizada {
 
 /// Encargo conferido (B14/B21) con vigencia/estado, verificado por operación.
 model EncargoConferido {
-  id              String        @id @default(cuid())
-  tenantId        String        @map("tenant_id")
-  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  clienteId       String        @map("cliente_id")
-  cliente         Cliente       @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId String  @map("cliente_id")
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
   /// "B14" | "B21" u otro tipo de aviso de encargo.
-  tipo            String
-  estado          EstadoEncargo @default(VIGENTE)
+  tipo             String
+  estado           EstadoEncargo @default(VIGENTE)
   /// Firma electrónica del cliente que confiere el encargo.
-  efirmaCliente   String?       @map("efirma_cliente")
+  efirmaCliente    String?       @map("efirma_cliente")
   /// Aceptación del agente.
-  aceptacionAgente Boolean      @default(false) @map("aceptacion_agente")
-  vigenciaInicio  DateTime      @map("vigencia_inicio")
-  vigenciaFin     DateTime?     @map("vigencia_fin")
-  creadoEn        DateTime      @default(now()) @map("creado_en")
+  aceptacionAgente Boolean       @default(false) @map("aceptacion_agente")
+  vigenciaInicio   DateTime      @map("vigencia_inicio")
+  vigenciaFin      DateTime?     @map("vigencia_fin")
+  creadoEn         DateTime      @default(now()) @map("creado_en")
 
-  operaciones     Operacion[]
+  operaciones Operacion[]
 
   @@index([tenantId, clienteId, estado])
   @@map("encargo_conferido")
@@ -326,18 +330,18 @@ model EncargoConferido {
 
 /// Expediente KYC art. 1414 (retención ~3 años). 1:1 con Cliente.
 model ExpedienteKyc1414 {
-  id         String   @id @default(cuid())
-  tenantId   String   @map("tenant_id")
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  clienteId  String   @unique @map("cliente_id")
-  cliente    Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId String  @unique @map("cliente_id")
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
   /// Custodio responsable del expediente.
-  custodio   String?
+  custodio     String?
   /// Fecha límite de retención (plazo propio).
   retieneHasta DateTime? @map("retiene_hasta")
-  creadoEn   DateTime @default(now()) @map("creado_en")
+  creadoEn     DateTime  @default(now()) @map("creado_en")
 
   documentos Documento[]
 
@@ -347,16 +351,16 @@ model ExpedienteKyc1414 {
 
 /// Expediente probatorio del despacho (~5 años, art. 30 CFF). 1:1 con Cliente.
 model ExpedienteProbatorioDespacho {
-  id         String   @id @default(cuid())
-  tenantId   String   @map("tenant_id")
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  clienteId  String   @unique @map("cliente_id")
-  cliente    Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId String  @unique @map("cliente_id")
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
-  custodio   String?
+  custodio     String?
   retieneHasta DateTime? @map("retiene_hasta")
-  creadoEn   DateTime @default(now()) @map("creado_en")
+  creadoEn     DateTime  @default(now()) @map("creado_en")
 
   documentos Documento[]
 
@@ -366,16 +370,16 @@ model ExpedienteProbatorioDespacho {
 
 /// Expediente doble 3142 (agente + empresa). 1:1 con Cliente.
 model ExpedienteDoble3142 {
-  id         String   @id @default(cuid())
-  tenantId   String   @map("tenant_id")
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  clienteId  String   @unique @map("cliente_id")
-  cliente    Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId String  @unique @map("cliente_id")
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
-  custodio   String?
+  custodio     String?
   retieneHasta DateTime? @map("retiene_hasta")
-  creadoEn   DateTime @default(now()) @map("creado_en")
+  creadoEn     DateTime  @default(now()) @map("creado_en")
 
   documentos Documento[]
 
@@ -386,9 +390,9 @@ model ExpedienteDoble3142 {
 /// Documento custodiado en alguno de los tres expedientes. Las versiones
 /// históricas NO son purgables (prueba exculpatoria).
 model Documento {
-  id               String           @id @default(cuid())
-  tenantId         String           @map("tenant_id")
-  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   /// Tipo documental (libre / catálogo).
   tipo             String
@@ -404,16 +408,16 @@ model Documento {
   creadoEn         DateTime         @default(now()) @map("creado_en")
 
   /// Pertenece a UNO de los tres expedientes (FK opcional por expediente).
-  expedienteKycId        String?            @map("expediente_kyc_id")
-  expedienteKyc          ExpedienteKyc1414? @relation(fields: [expedienteKycId], references: [id])
-  expedienteProbatorioId String?            @map("expediente_probatorio_id")
+  expedienteKycId        String?                       @map("expediente_kyc_id")
+  expedienteKyc          ExpedienteKyc1414?            @relation(fields: [expedienteKycId], references: [id])
+  expedienteProbatorioId String?                       @map("expediente_probatorio_id")
   expedienteProbatorio   ExpedienteProbatorioDespacho? @relation(fields: [expedienteProbatorioId], references: [id])
-  expedienteDobleId      String?            @map("expediente_doble_id")
-  expedienteDoble        ExpedienteDoble3142? @relation(fields: [expedienteDobleId], references: [id])
+  expedienteDobleId      String?                       @map("expediente_doble_id")
+  expedienteDoble        ExpedienteDoble3142?          @relation(fields: [expedienteDobleId], references: [id])
 
   /// Operación a la que pertenece la evidencia (FK directa opcional; Inc 8).
-  operacionId            String?            @map("operacion_id")
-  operacion              Operacion?         @relation(fields: [operacionId], references: [id])
+  operacionId String?    @map("operacion_id")
+  operacion   Operacion? @relation(fields: [operacionId], references: [id])
 
   @@index([tenantId, tipo])
   @@index([tenantId, estadoProbatorio])
@@ -429,33 +433,33 @@ model Documento {
 /// Operación de despacho de importación. La máquina de estados se modela con
 /// el enum `EstadoDespacho` (la incidencia del rojo es un estado).
 model Operacion {
-  id             String         @id @default(cuid())
-  tenantId       String         @map("tenant_id")
-  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  clienteId      String         @map("cliente_id")
-  cliente        Cliente        @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId String  @map("cliente_id")
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
   /// Atribución por patente (acto crítico).
-  patenteId      String?        @map("patente_id")
-  patente        Patente?       @relation(fields: [patenteId], references: [id])
+  patenteId String?  @map("patente_id")
+  patente   Patente? @relation(fields: [patenteId], references: [id])
 
   /// Encargo conferido verificado para esta operación.
-  encargoId      String?        @map("encargo_id")
-  encargo        EncargoConferido? @relation(fields: [encargoId], references: [id])
+  encargoId String?           @map("encargo_id")
+  encargo   EncargoConferido? @relation(fields: [encargoId], references: [id])
 
   /// Referencia interna del despacho.
-  referencia     String
-  estado         EstadoDespacho @default(ARMADO)
-  creadoEn       DateTime       @default(now()) @map("creado_en")
-  actualizadoEn  DateTime       @updatedAt @map("actualizado_en")
+  referencia    String
+  estado        EstadoDespacho @default(ARMADO)
+  creadoEn      DateTime       @default(now()) @map("creado_en")
+  actualizadoEn DateTime       @updatedAt @map("actualizado_en")
 
-  partidas       Partida[]
-  pasos          PasoDespacho[]
-  documentos     Documento[]
-  eventos        BitacoraAuditoria[]
-  comprobantes   ComprobanteCfdi[]
-  pedimentos     Pedimento[]
+  partidas     Partida[]
+  pasos        PasoDespacho[]
+  documentos   Documento[]
+  eventos      BitacoraAuditoria[]
+  comprobantes ComprobanteCfdi[]
+  pedimentos   Pedimento[]
 
   @@unique([tenantId, referencia])
   @@index([tenantId, estado])
@@ -465,39 +469,39 @@ model Operacion {
 
 /// Partida / mercancía. RESERVADA desde Fase 0 para evitar reescritura.
 model Partida {
-  id               String   @id @default(cuid())
-  tenantId         String   @map("tenant_id")
-  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  operacionId      String   @map("operacion_id")
-  operacion        Operacion @relation(fields: [operacionId], references: [id], onDelete: Cascade)
+  operacionId String    @map("operacion_id")
+  operacion   Operacion @relation(fields: [operacionId], references: [id], onDelete: Cascade)
 
-  descripcion      String?
+  descripcion       String?
   /// Fracción arancelaria declarada (reservada).
-  fraccionDeclarada String? @map("fraccion_declarada")
+  fraccionDeclarada String?  @map("fraccion_declarada")
   /// Número de identificación comercial (reservado).
-  nico             String?
-  umt              String?
-  origen           String?
-  incoterm         String?
+  nico              String?
+  umt               String?
+  origen            String?
+  incoterm          String?
   /// Valor declarado (reservado).
-  valorDeclarado   Decimal? @map("valor_declarado") @db.Decimal(18, 4)
+  valorDeclarado    Decimal? @map("valor_declarado") @db.Decimal(18, 4)
 
   // Valoración aduanera + contribuciones (Incremento 31). Todo en MXN salvo tasas.
   /// Valor en aduana (base gravable) en MXN = valor de transacción + incrementables.
-  valorAduana      Decimal? @map("valor_aduana") @db.Decimal(18, 2)
+  valorAduana Decimal? @map("valor_aduana") @db.Decimal(18, 2)
   /// Tasa de IGI (% ad valorem) de la fracción TIGIE.
-  tasaIgiPct       Decimal? @map("tasa_igi_pct") @db.Decimal(7, 4)
+  tasaIgiPct  Decimal? @map("tasa_igi_pct") @db.Decimal(7, 4)
   /// Tasa de IEPS (%) si la mercancía la causa.
-  tasaIepsPct      Decimal? @map("tasa_ieps_pct") @db.Decimal(7, 4)
-  igiImporte       Decimal? @map("igi_importe") @db.Decimal(18, 2)
-  dtaImporte       Decimal? @map("dta_importe") @db.Decimal(18, 2)
-  iepsImporte      Decimal? @map("ieps_importe") @db.Decimal(18, 2)
-  ivaImporte       Decimal? @map("iva_importe") @db.Decimal(18, 2)
+  tasaIepsPct Decimal? @map("tasa_ieps_pct") @db.Decimal(7, 4)
+  igiImporte  Decimal? @map("igi_importe") @db.Decimal(18, 2)
+  dtaImporte  Decimal? @map("dta_importe") @db.Decimal(18, 2)
+  iepsImporte Decimal? @map("ieps_importe") @db.Decimal(18, 2)
+  ivaImporte  Decimal? @map("iva_importe") @db.Decimal(18, 2)
   /// Sello de integridad (SHA-256) de la partida capturada+calculada.
-  sha256           String?  @db.Char(64)
+  sha256      String?  @db.Char(64)
 
-  creadoEn         DateTime @default(now()) @map("creado_en")
+  creadoEn DateTime @default(now()) @map("creado_en")
 
   @@index([tenantId, operacionId])
   @@map("partida")
@@ -507,32 +511,34 @@ model Partida {
 /// agregando sus partidas. Es registro probatorio (sellado); el cálculo real de
 /// fracciones/regulaciones se enchufa con el conector ClasificadorArancel.
 model Pedimento {
-  id                  String    @id @default(cuid())
-  tenantId            String    @map("tenant_id")
-  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  operacionId         String    @map("operacion_id")
-  operacion           Operacion @relation(fields: [operacionId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid())
+  tenantId    String    @map("tenant_id")
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  operacionId String    @map("operacion_id")
+  operacion   Operacion @relation(fields: [operacionId], references: [id], onDelete: Cascade)
 
   /// Clave de pedimento (p. ej. A1 importación definitiva).
-  claveDePedimento    String    @map("clave_de_pedimento")
+  claveDePedimento String  @map("clave_de_pedimento")
   /// [Inc 55] Número de pedimento (15 dígitos normalizados, formato Anexo 22).
-  numero              String?
+  numero           String?
   /// [Inc 55] Clave de la aduana/sección de despacho (3 dígitos, Anexo 22).
-  aduana              String?
+  aduana           String?
   /// Régimen aduanero (p. ej. IMPORTACION DEFINITIVA).
-  regimen             String
+  regimen          String
   /// Tipo de cambio aplicado (MXN por USD) a la fecha del pedimento.
-  tipoCambioUsd       Decimal   @map("tipo_cambio_usd") @db.Decimal(12, 4)
+  tipoCambioUsd    Decimal @map("tipo_cambio_usd") @db.Decimal(12, 4)
 
-  valorAduanaTotal    Decimal   @map("valor_aduana_total") @db.Decimal(18, 2)
-  igiTotal            Decimal   @map("igi_total") @db.Decimal(18, 2)
-  dtaTotal            Decimal   @map("dta_total") @db.Decimal(18, 2)
-  iepsTotal           Decimal   @map("ieps_total") @db.Decimal(18, 2)
-  ivaTotal            Decimal   @map("iva_total") @db.Decimal(18, 2)
-  contribucionesTotal Decimal   @map("contribuciones_total") @db.Decimal(18, 2)
+  valorAduanaTotal    Decimal @map("valor_aduana_total") @db.Decimal(18, 2)
+  igiTotal            Decimal @map("igi_total") @db.Decimal(18, 2)
+  dtaTotal            Decimal @map("dta_total") @db.Decimal(18, 2)
+  iepsTotal           Decimal @map("ieps_total") @db.Decimal(18, 2)
+  ivaTotal            Decimal @map("iva_total") @db.Decimal(18, 2)
+  contribucionesTotal Decimal @map("contribuciones_total") @db.Decimal(18, 2)
 
-  sha256              String    @db.Char(64)
-  creadoEn            DateTime  @default(now()) @map("creado_en")
+  sha256   String   @db.Char(64)
+  creadoEn DateTime @default(now()) @map("creado_en")
+
+  movimientosImmex MovimientoImmex[]
 
   @@index([tenantId, operacionId])
   @@map("pedimento")
@@ -545,25 +551,25 @@ model Pedimento {
 /// Alerta del art. 69-B CFF por etapa. Es ALERTA, no bloqueo; el override se
 /// firma (e.firma) y es inmutable.
 model Alerta69b {
-  id            String    @id @default(cuid())
-  tenantId      String    @map("tenant_id")
-  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  clienteId     String    @map("cliente_id")
-  cliente       Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId String  @map("cliente_id")
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
-  estado        Estado69b @default(PRESUNTO)
+  estado            Estado69b @default(PRESUNTO)
   /// SHA-256 del snapshot del DOF que motivó la etapa.
-  snapshotDofSha256 String? @map("snapshot_dof_sha256") @db.Char(64)
+  snapshotDofSha256 String?   @map("snapshot_dof_sha256") @db.Char(64)
   snapshotDofFecha  DateTime? @map("snapshot_dof_fecha")
 
   /// Override firmado (e.firma del actor) — inmutable cuando estado = OVERRIDE.
-  overrideEfirma String?  @map("override_efirma")
-  overrideMotivo String?  @map("override_motivo")
+  overrideEfirma String?   @map("override_efirma")
+  overrideMotivo String?   @map("override_motivo")
   overrideEn     DateTime? @map("override_en")
 
-  creadoEn       DateTime @default(now()) @map("creado_en")
-  actualizadoEn  DateTime @updatedAt @map("actualizado_en")
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
 
   @@index([tenantId, clienteId, estado])
   @@map("alerta_69b")
@@ -576,20 +582,20 @@ model Alerta69b {
 /// Versión publicada del Aviso de Privacidad (integral o corto). Inmutable.
 /// El hash es el SHA-256 del texto exacto publicado.
 model VersionAviso {
-  id            String    @id @default(cuid())
-  tenantId      String    @map("tenant_id")
-  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  tipo          TipoAviso
+  tipo         TipoAviso
   /// Etiqueta legible, p. ej. "v2".
-  version       String
+  version      String
   /// SHA-256 (hex, 64 chars) del cuerpo exacto del aviso publicado.
-  hashAviso     String    @map("hash_aviso") @db.Char(64)
+  hashAviso    String    @map("hash_aviso") @db.Char(64)
   /// Texto íntegro publicado (fuente del hash). Conservar para exporte probatorio.
-  cuerpo        String
-  vigenteDesde  DateTime  @default(now()) @map("vigente_desde")
-  vigenteHasta  DateTime? @map("vigente_hasta")
-  publicadoPor  String?   @map("publicado_por")
+  cuerpo       String
+  vigenteDesde DateTime  @default(now()) @map("vigente_desde")
+  vigenteHasta DateTime? @map("vigente_hasta")
+  publicadoPor String?   @map("publicado_por")
 
   consentimientos ConsentimientoDatos[]
 
@@ -601,46 +607,46 @@ model VersionAviso {
 /// Registro de consentimiento expreso del titular para datos sensibles
 /// (LFPDPPP art. 9). Una fila por acto; la revocación NO borra la fila.
 model ConsentimientoDatos {
-  id                   String   @id @default(cuid())
-  tenantId             String   @map("tenant_id")
-  tenant               Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   /// Sujeto titular dentro del tenant (FK lógica al titular/operación).
-  titularRef           String   @map("titular_ref")
+  titularRef   String  @map("titular_ref")
   /// Operación / captura a la que pertenece el consentimiento (opcional).
-  operacionRef         String?  @map("operacion_ref")
+  operacionRef String? @map("operacion_ref")
 
   /// Versión del aviso aceptada (aviso corto de captura, normalmente).
-  versionAvisoId       String   @map("version_aviso_id")
+  versionAvisoId       String       @map("version_aviso_id")
   versionAviso         VersionAviso @relation(fields: [versionAvisoId], references: [id])
   /// Etiqueta de versión denormalizada para lectura rápida e independencia del FK.
-  versionAvisoEtiqueta String   @map("version_aviso_etiqueta")
+  versionAvisoEtiqueta String       @map("version_aviso_etiqueta")
   /// SHA-256 del aviso que el titular tenía en pantalla al aceptar.
-  hashAvisoPrivacidad  String   @map("hash_aviso_privacidad") @db.Char(64)
+  hashAvisoPrivacidad  String       @map("hash_aviso_privacidad") @db.Char(64)
 
   /// Alcance otorgado.
-  consienteBiometricos Boolean  @default(false) @map("consiente_biometricos")
-  consienteGeoloc      Boolean  @default(false) @map("consiente_geoloc")
+  consienteBiometricos Boolean @default(false) @map("consiente_biometricos")
+  consienteGeoloc      Boolean @default(false) @map("consiente_geoloc")
   /// true si el titular eligió "Continuar sin capturar evidencia sensible".
-  rutaSinEvidencia     Boolean  @default(false) @map("ruta_sin_evidencia")
+  rutaSinEvidencia     Boolean @default(false) @map("ruta_sin_evidencia")
 
   /// Medio y metadatos del acto.
-  medio                String   @default("WEB_PUNTO_CAPTURA")
-  ipOrigen             String?  @map("ip_origen")
-  userAgent            String?  @map("user_agent")
+  medio     String  @default("WEB_PUNTO_CAPTURA")
+  ipOrigen  String? @map("ip_origen")
+  userAgent String? @map("user_agent")
 
   /// Sello de integridad del registro.
   /// selloRegistro = SHA-256( payload canónico de este consentimiento ).
-  selloRegistro        String   @map("sello_registro") @db.Char(64)
+  selloRegistro String  @map("sello_registro") @db.Char(64)
   /// Encadenamiento append-only con el sello del registro previo del tenant.
-  hashPrev             String?  @map("hash_prev") @db.Char(64)
+  hashPrev      String? @map("hash_prev") @db.Char(64)
 
   /// Revocación (LFPDPPP art. 16 §6 aviso): sin efectos retroactivos.
-  revocado             Boolean  @default(false)
-  revocadoEn           DateTime? @map("revocado_en")
-  motivoRevocacion     String?  @map("motivo_revocacion")
+  revocado         Boolean   @default(false)
+  revocadoEn       DateTime? @map("revocado_en")
+  motivoRevocacion String?   @map("motivo_revocacion")
 
-  creadoEn             DateTime @default(now()) @map("creado_en")
+  creadoEn DateTime @default(now()) @map("creado_en")
 
   @@index([tenantId, titularRef, creadoEn])
   @@index([tenantId, revocado])
@@ -654,28 +660,28 @@ model ConsentimientoDatos {
 /// Bitácora append-only. Cada fila encadena con el sha256 de la fila previa del
 /// tenant (`hashPrev`). No se actualiza ni borra (control probatorio).
 model BitacoraAuditoria {
-  id          String   @id @default(cuid())
-  tenantId    String   @map("tenant_id")
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   /// Actor que ejecutó la acción (usuario / e.firma).
   actor       String
   /// Acción registrada.
   accion      String
   /// Referencia al payload sellado (URL/ID externo), no el payload completo.
-  payloadRef  String?  @map("payload_ref")
+  payloadRef  String?          @map("payload_ref")
   /// SHA-256 (hex, 64 chars) del registro canónico.
-  sha256      String   @db.Char(64)
+  sha256      String           @db.Char(64)
   /// SHA-256 del registro previo del tenant (encadenamiento).
-  hashPrev    String?  @map("hash_prev") @db.Char(64)
+  hashPrev    String?          @map("hash_prev") @db.Char(64)
   /// Estado del sello calificado del registro.
   estadoSello EstadoProbatorio @default(EVIDENCIA_PRELIMINAR) @map("estado_sello")
 
   /// Operación a la que pertenece el evento (FK directa opcional; Inc 8).
-  operacionId String?  @map("operacion_id")
+  operacionId String?    @map("operacion_id")
   operacion   Operacion? @relation(fields: [operacionId], references: [id])
 
-  creadoEn    DateTime @default(now()) @map("creado_en")
+  creadoEn DateTime @default(now()) @map("creado_en")
 
   @@index([tenantId, creadoEn])
   @@index([tenantId, accion])
@@ -691,19 +697,19 @@ model BitacoraAuditoria {
 
 /// Fuente/supuesto verificado del cumplimiento fiscal del cliente/proveedor.
 enum FuenteVerificacion {
-  ART_69          // créditos firmes / no localizados (listado SAT)
-  ART_69B         // EFOS/EDOS (operaciones inexistentes)
-  ART_69B_BIS     // transmisión indebida de pérdidas
-  ART_49BIS       // supuesto que inhabilita operaciones (art. 49 Bis CFF, confirmado por el
-                  // cliente en Inc 9.1; la migración renombra el valor — si Prisma propone
-                  // drop+add, es aceptable: los datos existentes son stub demo)
-  OPINION_32D     // opinión de cumplimiento de obligaciones fiscales
-  CSD_17H         // restricción/cancelación de sello digital
-  SANCIONES_INT   // listas de sanciones internacionales (OFAC/SDN, ONU, UE, UK…)
-                  // por ingesta manual; identifican por NOMBRE → match heurístico
-                  // = SIEMPRE ALERTA con revisión humana (C9; Inc 12)
-  PADRON          // [Inc 55] Padrón de Importadores / Sectores Específicos
-                  // (dictamen aduanal: requisito Módulo 2.1 del despacho)
+  ART_69 // créditos firmes / no localizados (listado SAT)
+  ART_69B // EFOS/EDOS (operaciones inexistentes)
+  ART_69B_BIS // transmisión indebida de pérdidas
+  ART_49BIS // supuesto que inhabilita operaciones (art. 49 Bis CFF, confirmado por el
+  // cliente en Inc 9.1; la migración renombra el valor — si Prisma propone
+  // drop+add, es aceptable: los datos existentes son stub demo)
+  OPINION_32D // opinión de cumplimiento de obligaciones fiscales
+  CSD_17H // restricción/cancelación de sello digital
+  SANCIONES_INT // listas de sanciones internacionales (OFAC/SDN, ONU, UE, UK…)
+  // por ingesta manual; identifican por NOMBRE → match heurístico
+  // = SIEMPRE ALERTA con revisión humana (C9; Inc 12)
+  PADRON // [Inc 55] Padrón de Importadores / Sectores Específicos
+  // (dictamen aduanal: requisito Módulo 2.1 del despacho)
 }
 
 /// Resultado de la verificación por fuente.
@@ -725,7 +731,7 @@ model VerificacionCumplimiento {
   fuente         FuenteVerificacion
   resultado      ResultadoVerificacion
   detalle        String?
-  snapshotSha256 String?               @db.Char(64) @map("snapshot_sha256")
+  snapshotSha256 String?               @map("snapshot_sha256") @db.Char(64)
   consultadoEn   DateTime              @default(now()) @map("consultado_en")
   vigenciaHasta  DateTime?             @map("vigencia_hasta")
   creadoEn       DateTime              @default(now()) @map("creado_en")
@@ -758,9 +764,9 @@ model PasoDespacho {
   operacionId  String    @map("operacion_id")
   operacion    Operacion @relation(fields: [operacionId], references: [id], onDelete: Cascade)
   tipo         TipoPaso
-  acuse        String?   // acuse/folio/referencia (MVE, COVE, DODA)
-  sello        String?   // sello de prevalidación
-  monto        Decimal?  @db.Decimal(14, 2)  // para PAGO (total de contribuciones)
+  acuse        String? // acuse/folio/referencia (MVE, COVE, DODA)
+  sello        String? // sello de prevalidación
+  monto        Decimal?  @db.Decimal(14, 2) // para PAGO (total de contribuciones)
   detalle      String?
   sha256       String    @db.Char(64)
   completadoEn DateTime  @default(now()) @map("completado_en")
@@ -778,32 +784,34 @@ model PasoDespacho {
 
 /// Importación (snapshot sellado) de un listado público del SAT.
 model ImportacionListadoSat {
-  id           String   @id @default(cuid())
-  fuente       FuenteVerificacion   // ART_69 | ART_69B | ART_69B_BIS | ART_49BIS
-  url          String
-  sha256Archivo String  @db.Char(64) @map("sha256_archivo")
-  filas        Int
+  id            String              @id @default(cuid())
+  fuente        FuenteVerificacion // ART_69 | ART_69B | ART_69B_BIS | ART_49BIS
+  url           String
+  sha256Archivo String              @map("sha256_archivo") @db.Char(64)
+  filas         Int
   /// Origen de la importación: AUTOMATICA (sync/cron) | MANUAL (ingesta admin; Inc 12).
-  origen       String   @default("AUTOMATICA")
+  origen        String              @default("AUTOMATICA")
   /// Organismo emisor de la lista (p. ej. SAT, OFAC, ONU, UE, UK). Inc 12.
-  emisor       String?
-  importadoEn  DateTime @default(now()) @map("importado_en")
-  entradas     ListadoSatEntrada[]
+  emisor        String?
+  importadoEn   DateTime            @default(now()) @map("importado_en")
+  entradas      ListadoSatEntrada[]
+
   @@index([fuente, importadoEn])
   @@map("importacion_listado_sat")
 }
 
 /// Entrada (RFC) de un listado del SAT importado. Referencia global.
 model ListadoSatEntrada {
-  id            String   @id @default(cuid())
-  importacionId String   @map("importacion_id")
+  id            String                @id @default(cuid())
+  importacionId String                @map("importacion_id")
   importacion   ImportacionListadoSat @relation(fields: [importacionId], references: [id], onDelete: Cascade)
   fuente        FuenteVerificacion
   /// RFC opcional desde Inc 12: las listas internacionales (SANCIONES_INT)
   /// identifican por NOMBRE y no traen RFC. Las fuentes SAT siguen exigiéndolo.
   rfc           String?
-  razonSocial   String?  @map("razon_social")
-  situacion     String?  // texto de la columna "situación" del CSV (Presunto/Definitivo/etc.)
+  razonSocial   String?               @map("razon_social")
+  situacion     String? // texto de la columna "situación" del CSV (Presunto/Definitivo/etc.)
+
   @@index([rfc, fuente])
   @@index([razonSocial])
   @@map("listado_sat_entrada")
@@ -818,25 +826,25 @@ model ListadoSatEntrada {
 
 /// CFDI de una operación con complemento (Carta Porte 3.1 / Comercio Ext 1.1).
 model ComprobanteCfdi {
-  id            String          @id @default(cuid())
-  tenantId      String          @map("tenant_id")
-  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  operacionId   String          @map("operacion_id")
-  operacion     Operacion       @relation(fields: [operacionId], references: [id], onDelete: Cascade)
-  tipo          TipoComprobante
-  complemento   TipoComplemento @default(NINGUNO)
-  estado        EstadoCfdi      @default(BORRADOR)
-  emisorRfc     String          @map("emisor_rfc")
-  receptorRfc   String          @map("receptor_rfc")
+  id                String             @id @default(cuid())
+  tenantId          String             @map("tenant_id")
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  operacionId       String             @map("operacion_id")
+  operacion         Operacion          @relation(fields: [operacionId], references: [id], onDelete: Cascade)
+  tipo              TipoComprobante
+  complemento       TipoComplemento    @default(NINGUNO)
+  estado            EstadoCfdi         @default(BORRADOR)
+  emisorRfc         String             @map("emisor_rfc")
+  receptorRfc       String             @map("receptor_rfc")
   /// Datos capturados (incluido el complemento) como JSON canónico (string).
-  payload       String
-  sha256        String          @db.Char(64)
-  uuid          String?         // folio fiscal al timbrar (lo pondrá el PAC real)
+  payload           String
+  sha256            String             @db.Char(64)
+  uuid              String? // folio fiscal al timbrar (lo pondrá el PAC real)
   motivoCancelacion MotivoCancelacion? @map("motivo_cancelacion")
-  sustituyeUuid String?         @map("sustituye_uuid")   // para motivo 01
-  detallePac    String?         @map("detalle_pac")      // respuesta/estado del conector
-  creadoEn      DateTime        @default(now()) @map("creado_en")
-  actualizadoEn DateTime        @updatedAt @map("actualizado_en")
+  sustituyeUuid     String?            @map("sustituye_uuid") // para motivo 01
+  detallePac        String?            @map("detalle_pac") // respuesta/estado del conector
+  creadoEn          DateTime           @default(now()) @map("creado_en")
+  actualizadoEn     DateTime           @updatedAt @map("actualizado_en")
 
   @@index([tenantId, operacionId])
   @@index([tenantId, estado])
@@ -859,23 +867,23 @@ enum EstadoFirmaOverride {
 }
 
 model OverrideAlerta {
-  id             String   @id @default(cuid())
-  tenantId       String   @map("tenant_id")
-  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  clienteId      String   @map("cliente_id")
-  cliente        Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  fuente         FuenteVerificacion
+  id           String              @id @default(cuid())
+  tenantId     String              @map("tenant_id")
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clienteId    String              @map("cliente_id")
+  cliente      Cliente             @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  fuente       FuenteVerificacion
   /// Resultado adverso que se decide sobrellevar (copia legible, p. ej. "INHABILITADO_PRESUNTO").
-  resultado      String
+  resultado    String
   /// Motivación OBLIGATORIA del responsable (mínimo 20 caracteres).
-  motivo         String
-  actor          String
+  motivo       String
+  actor        String
   /// SHA-256 del payload canónico del acto (cliente, fuente, resultado, motivo, actor, ts).
-  sha256         String   @db.Char(64)
-  estadoFirma    EstadoFirmaOverride @default(SIN_FIRMA) @map("estado_firma")
+  sha256       String              @db.Char(64)
+  estadoFirma  EstadoFirmaOverride @default(SIN_FIRMA) @map("estado_firma")
   /// Sello/serial del certificado cuando se firme con e.firma real (conector futuro).
-  firmaDetalle   String?  @map("firma_detalle")
-  creadoEn       DateTime @default(now()) @map("creado_en")
+  firmaDetalle String?             @map("firma_detalle")
+  creadoEn     DateTime            @default(now()) @map("creado_en")
 
   @@index([tenantId, clienteId, fuente])
   @@map("override_alerta")
@@ -901,10 +909,10 @@ model OverrideAlerta {
 /// C9: incluso INVALIDA es una ALERTA registrada para revisión humana, no un
 /// bloqueo de la operación del cliente.
 enum ResultadoValidacionEfirma {
-  VALIDA          // certificado auténtico (emisor SAT), vigente y RFC coincide
-  ALERTA          // estructuralmente válido pero con observaciones (RFC no coincide, por vencer)
-  INVALIDA        // emisor no reconocido, vencido o alterado
-  NO_VERIFICABLE  // no se pudo parsear/analizar el material entregado
+  VALIDA // certificado auténtico (emisor SAT), vigente y RFC coincide
+  ALERTA // estructuralmente válido pero con observaciones (RFC no coincide, por vencer)
+  INVALIDA // emisor no reconocido, vencido o alterado
+  NO_VERIFICABLE // no se pudo parsear/analizar el material entregado
 }
 
 /// e.firma (certificado público .cer) entregada por el cliente/proveedor para
@@ -912,17 +920,17 @@ enum ResultadoValidacionEfirma {
 /// certificado público y los metadatos extraídos; la clave privada nunca entra
 /// al sistema (C14).
 model EfirmaEntregada {
-  id             String   @id @default(cuid())
-  tenantId       String   @map("tenant_id")
-  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  clienteId      String   @map("cliente_id")
-  cliente        Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  id             String                    @id @default(cuid())
+  tenantId       String                    @map("tenant_id")
+  tenant         Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clienteId      String                    @map("cliente_id")
+  cliente        Cliente                   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   /// Nombre del archivo entregado (referencia legible, p. ej. "efirma.cer").
-  nombreArchivo  String?  @map("nombre_archivo")
+  nombreArchivo  String?                   @map("nombre_archivo")
   /// SHA-256 (hex, 64 chars) del certificado (DER) entregado — huella del archivo.
-  sha256         String   @db.Char(64)
+  sha256         String                    @db.Char(64)
   /// RFC extraído del subject del certificado (si se pudo determinar).
-  rfcCertificado String?  @map("rfc_certificado")
+  rfcCertificado String?                   @map("rfc_certificado")
   /// Titular (subject/CN) del certificado.
   titular        String?
   /// Número de serie del certificado.
@@ -930,15 +938,15 @@ model EfirmaEntregada {
   /// Emisor (issuer) del certificado.
   emisor         String?
   /// Vigencia del certificado.
-  validoDesde    DateTime? @map("valido_desde")
-  validoHasta    DateTime? @map("valido_hasta")
+  validoDesde    DateTime?                 @map("valido_desde")
+  validoHasta    DateTime?                 @map("valido_hasta")
   /// Veredicto de la validación automática de autenticidad.
   resultado      ResultadoValidacionEfirma
   /// Observaciones/checks del validador (JSON serializado: lista de comprobaciones).
   observaciones  String
   /// Actor (del JWT) que registró la entrega.
   actor          String
-  creadoEn       DateTime @default(now()) @map("creado_en")
+  creadoEn       DateTime                  @default(now()) @map("creado_en")
 
   @@index([tenantId, clienteId])
   @@map("efirma_entregada")
@@ -960,18 +968,18 @@ model EfirmaEntregada {
 
 /// Veredicto del validador automático de autenticidad de la opinión ingestada.
 enum ResultadoValidacionOpinion {
-  AUTENTICA       // marcadores del SAT + folio + RFC coincide + consistente
-  SOSPECHOSA      // faltan elementos o hay inconsistencias: revisión humana
-  NO_AUTENTICA    // sin marcadores del SAT / RFC no coincide / probable falsificación
-  NO_VERIFICABLE  // no se pudo analizar el texto entregado
+  AUTENTICA // marcadores del SAT + folio + RFC coincide + consistente
+  SOSPECHOSA // faltan elementos o hay inconsistencias: revisión humana
+  NO_AUTENTICA // sin marcadores del SAT / RFC no coincide / probable falsificación
+  NO_VERIFICABLE // no se pudo analizar el texto entregado
 }
 
 /// Estado del cotejo EN VIVO ante el SAT (conector VerificadorOpinionSat).
 enum EstadoCotejoSat {
-  NO_INTENTADO    // aún no se cotejó (o conector no configurado)
-  CONFIRMADA      // el SAT confirma el folio/sentido
-  DISCREPANCIA    // el SAT responde algo distinto a lo ingestado
-  NO_DISPONIBLE   // conector no configurado / SAT no disponible
+  NO_INTENTADO // aún no se cotejó (o conector no configurado)
+  CONFIRMADA // el SAT confirma el folio/sentido
+  DISCREPANCIA // el SAT responde algo distinto a lo ingestado
+  NO_DISPONIBLE // conector no configurado / SAT no disponible
 }
 
 /// Sentido de la opinión de cumplimiento (art. 32-D CFF).
@@ -986,39 +994,39 @@ enum SentidoOpinion {
 /// Opinión de cumplimiento (32-D) entregada por el cliente e ingestada para
 /// validar su autenticidad. Tenant-scoped.
 model OpinionCumplimientoIngestada {
-  id             String   @id @default(cuid())
-  tenantId       String   @map("tenant_id")
-  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  clienteId      String   @map("cliente_id")
-  cliente        Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  id            String                     @id @default(cuid())
+  tenantId      String                     @map("tenant_id")
+  tenant        Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clienteId     String                     @map("cliente_id")
+  cliente       Cliente                    @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   /// Nombre del archivo entregado (referencia legible, p. ej. "opinion.pdf").
-  nombreArchivo  String?  @map("nombre_archivo")
+  nombreArchivo String?                    @map("nombre_archivo")
   /// SHA-256 (hex, 64 chars) del texto ingestado — huella probatoria.
-  sha256         String   @db.Char(64)
+  sha256        String                     @db.Char(64)
   /// Texto íntegro ingestado (fuente del hash; conservar para exporte probatorio).
-  textoOriginal  String   @map("texto_original")
+  textoOriginal String                     @map("texto_original")
   /// RFC extraído del documento (si se pudo determinar).
-  rfcDocumento   String?  @map("rfc_documento")
+  rfcDocumento  String?                    @map("rfc_documento")
   /// Folio / número de acuse extraído (clave para el cotejo en vivo).
-  folio          String?
+  folio         String?
   /// Sentido detectado en el documento.
-  sentido        SentidoOpinion @default(INDETERMINADO)
+  sentido       SentidoOpinion             @default(INDETERMINADO)
   /// Fecha de emisión detectada en el documento.
-  fechaEmision   DateTime? @map("fecha_emision")
+  fechaEmision  DateTime?                  @map("fecha_emision")
   /// Vigencia de la opinión (Inc 33): IMSS la declara (FechaFinVigencia); para el
   /// SAT se estima en 30 días naturales desde la emisión (RMF 2.1.37).
-  vigenciaHasta  DateTime? @map("vigencia_hasta")
+  vigenciaHasta DateTime?                  @map("vigencia_hasta")
   /// Veredicto de la validación automática de autenticidad.
-  resultado      ResultadoValidacionOpinion
+  resultado     ResultadoValidacionOpinion
   /// Observaciones/checks del validador (JSON serializado).
-  observaciones  String
+  observaciones String
   /// Estado del cotejo EN VIVO ante el SAT (conector).
-  cotejoEnVivo   EstadoCotejoSat @default(NO_INTENTADO) @map("cotejo_en_vivo")
+  cotejoEnVivo  EstadoCotejoSat            @default(NO_INTENTADO) @map("cotejo_en_vivo")
   /// Detalle legible del cotejo en vivo (respuesta del conector).
-  cotejoDetalle  String?  @map("cotejo_detalle")
+  cotejoDetalle String?                    @map("cotejo_detalle")
   /// Actor (del JWT) que registró la ingesta.
-  actor          String
-  creadoEn       DateTime @default(now()) @map("creado_en")
+  actor         String
+  creadoEn      DateTime                   @default(now()) @map("creado_en")
 
   @@index([tenantId, clienteId])
   @@map("opinion_cumplimiento_ingestada")
@@ -1036,11 +1044,11 @@ model OpinionCumplimientoIngestada {
 // `cargo` también se validan contra ese catálogo a nivel de aplicación.
 // ============================================================================
 model Destinatario {
-  id            String   @id @default(cuid())
-  tenantId      String   @map("tenant_id")
-  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  clienteId     String   @map("cliente_id")
-  cliente       Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  tenantId  String  @map("tenant_id")
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clienteId String  @map("cliente_id")
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
   nombre        String
   /// Cargo/rol del actor (CEO, CFO, OCN, OPERACIONES, LEGAL, OTRO).
@@ -1057,4 +1065,113 @@ model Destinatario {
 
   @@index([tenantId, clienteId])
   @@map("destinatario")
+}
+
+// =============================================================================
+// [Inc 61] MÓDULO IMMEX — LIBRO DE COTEJO (Anexos 24/30/31 RGCE).
+// NO es el SACI oficial del cliente (decisión A4, diseño v2 §75: CERBERUS
+// audita/coteja, no genera el inventario legal). Reconstruye entradas
+// (pedimentos de importación temporal) y descargos (retornos/cambios de
+// régimen) para derivar saldos, plazos y ALERTAS (C9: nunca bloquea).
+// =============================================================================
+
+/// Naturaleza del movimiento de inventario IMMEX. Las claves de pedimento
+/// exactas del Anexo 22 que mapean a cada tipo: a confirmar por abogado.
+enum TipoMovimientoImmex {
+  ENTRADA // importación temporal (pedimento tipo IN): suma saldo
+  DESCARGO // retorno/exportación o cambio de régimen (tipo RT…): resta (PEPS)
+  AJUSTE // corrección/merma reconocida (se registra, no se oculta)
+}
+
+/// Origen del dato: cotejo interno de CERBERUS vs. lectura del ERP del cliente.
+enum FuenteInventarioImmex {
+  COTEJO_CERBERUS // reconstruido de los pedimentos capturados (ledger interno)
+  ERP_CLIENTE // leído del ERP vía ConectorErp (SaldoImmex normalizado)
+}
+
+/// Inventario IMMEX de cotejo por cliente (1:1). Concreta "CapaPEPS/BOM".
+model InventarioImmex {
+  id        String  @id @default(cuid())
+  tenantId  String  @map("tenant_id")
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clienteId String  @unique @map("cliente_id")
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// Certificación IVA/IEPS (R8): condiciona la severidad de las alertas.
+  certificadoIvaIeps Boolean               @default(false) @map("certificado_iva_ieps")
+  /// Nivel de certificación ("A" | "AA" | "AAA"); catálogo a nivel app.
+  nivelCiva          String?               @map("nivel_civa")
+  fuente             FuenteInventarioImmex @default(COTEJO_CERBERUS)
+  creadoEn           DateTime              @default(now()) @map("creado_en")
+  actualizadoEn      DateTime              @updatedAt @map("actualizado_en")
+
+  materiales MaterialImmex[]
+
+  @@unique([tenantId, clienteId])
+  @@map("inventario_immex")
+}
+
+/// Material/insumo bajo control (fracción TIGIE + descripción + unidad).
+/// El saldo es DERIVABLE de los movimientos; saldoActual es caché de lectura.
+model MaterialImmex {
+  id           String          @id @default(cuid())
+  tenantId     String          @map("tenant_id")
+  tenant       Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  inventarioId String          @map("inventario_id")
+  inventario   InventarioImmex @relation(fields: [inventarioId], references: [id], onDelete: Cascade)
+
+  fraccion     String
+  nico         String?
+  descripcion  String
+  unidadMedida String  @map("unidad_medida")
+
+  /// Caché derivable; la fuente de verdad son los MovimientoImmex.
+  saldoActual Decimal @default(0) @map("saldo_actual") @db.Decimal(18, 4)
+
+  movimientos MovimientoImmex[]
+
+  @@unique([tenantId, inventarioId, fraccion, nico])
+  @@index([tenantId, inventarioId, fraccion])
+  @@map("material_immex")
+}
+
+/// Movimiento ENTRADA/DESCARGO/AJUSTE. Referencia el Pedimento existente;
+/// el descargo se aplica PEPS contra las entradas más antiguas.
+model MovimientoImmex {
+  id         String        @id @default(cuid())
+  tenantId   String        @map("tenant_id")
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  materialId String        @map("material_id")
+  material   MaterialImmex @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  tipo        TipoMovimientoImmex
+  cantidad    Decimal             @db.Decimal(18, 4)
+  /// Valor en aduana MXN (el Anexo 24 exige valor).
+  valorAduana Decimal?            @map("valor_aduana") @db.Decimal(18, 2)
+
+  /// Pedimento que ampara el movimiento (IN en entrada, RT en descargo).
+  pedimentoId     String?    @map("pedimento_id")
+  pedimento       Pedimento? @relation(fields: [pedimentoId], references: [id])
+  /// Copia legible por si el pedimento aún no está capturado en el sistema.
+  pedimentoNumero String?    @map("pedimento_numero")
+  clavePedimento  String?    @map("clave_pedimento")
+
+  /// R6: fecha límite de retorno de la ENTRADA (dato capturado; el plazo legal
+  /// exacto queda a confirmar por abogado). Null en descargos.
+  fechaLimiteRetorno  DateTime? @map("fecha_limite_retorno")
+  /// R2 (regla de 48h): cuándo concluyó el despacho y cuándo se registró aquí.
+  despachoConcluidoEn DateTime? @map("despacho_concluido_en")
+  registradoEn        DateTime  @default(now()) @map("registrado_en")
+
+  /// R4 PEPS: en un DESCARGO, la ENTRADA de la que consumió saldo.
+  entradaOrigenId String? @map("entrada_origen_id")
+
+  /// R10: sello probatorio de la fila (payload canónico).
+  sha256   String   @db.Char(64)
+  creadoEn DateTime @default(now()) @map("creado_en")
+
+  @@index([tenantId, materialId, tipo])
+  @@index([tenantId, fechaLimiteRetorno])
+  @@index([tenantId, pedimentoId])
+  @@map("movimiento_immex")
 }
