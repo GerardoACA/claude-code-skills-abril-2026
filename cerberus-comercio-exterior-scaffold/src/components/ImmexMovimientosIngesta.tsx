@@ -37,10 +37,12 @@ type EstadoEnvio = {
   errores: string[];
 };
 
+// Encabezados canónicos del CSV (contrato del carril B, ver
+// src/lib/immex/ingesta-movimientos.ts — aquí copiados: este componente solo
+// puede importar tipos.ts/derivar-saldos.ts del módulo IMMEX).
 const ENCABEZADO_ENTRADA =
-  "fraccion,nico,descripcion,unidadMedida,cantidad,valorAduana,pedimentoNumero,clavePedimento,fechaLimiteRetorno,despachoConcluidoEn";
-const ENCABEZADO_DESCARGO =
-  "fraccion,nico,cantidad,pedimentoNumero,clavePedimento,despachoConcluidoEn";
+  "fraccion,descripcion,unidadMedida,cantidad,valorAduana,pedimentoNumero,clavePedimento,fechaLimiteRetorno,despachoConcluidoEn";
+const ENCABEZADO_DESCARGO = "fraccion,cantidad,pedimentoNumero,clavePedimento,despachoConcluidoEn";
 
 // -----------------------------------------------------------------------------
 // Lectura defensiva de la respuesta del servidor (carril B): se extraen los
