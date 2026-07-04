@@ -31,6 +31,8 @@ import { sha256 } from "@/lib/probatoria/hash";
 import { canonicalizar } from "@/lib/probatoria/hash-chain";
 import { obtenerAlmacen } from "@/lib/almacen-worm";
 import { TIPOS_DOC_KYC } from "@/lib/documentos-kyc-catalogo";
+import { extraerDatosKyc } from "@/lib/extraer-kyc-doc";
+import { extractText, getDocumentProxy } from "unpdf";
 
 export const runtime = "nodejs";
 
@@ -56,6 +58,44 @@ const EsquemaCampos = z.object({
 });
 
 type Params = { params: Promise<{ id: string }> };
+
+/**
+ * Datos extraídos del documento subido (Inc 48A: captura asistida — el
+ * capturista no teclea lo que el documento ya dice). SOLO incluye los campos
+ * que el extractor detectó; null si el archivo no es PDF, no tiene capa de
+ * texto o no se reconoció ningún dato.
+ */
+type ExtraidoDocKyc = {
+  rfc?: string;
+  razonSocial?: string;
+  regimen?: string;
+  actividad?: string;
+  domicilio?: string;
+} | null;
+
+/**
+ * Extrae texto del PDF con unpdf y le corre el extractor KYC. FAIL-SAFE: un
+ * PDF ilegible/escaneado NUNCA impide guardar el documento — devuelve null.
+ */
+async function extraerDePdf(buffer: Buffer): Promise<ExtraidoDocKyc> {
+  try {
+    const pdf = await getDocumentProxy(new Uint8Array(buffer));
+    const { text } = await extractText(pdf, { mergePages: true });
+    const texto = typeof text === "string" ? text : "";
+    if (texto.trim().length < 30) return null; // sin capa de texto útil.
+
+    const datos = extraerDatosKyc(texto);
+    const extraido: NonNullable<ExtraidoDocKyc> = {};
+    if (datos.rfc !== null) extraido.rfc = datos.rfc;
+    if (datos.razonSocial !== null) extraido.razonSocial = datos.razonSocial;
+    if (datos.regimen !== null) extraido.regimen = datos.regimen;
+    if (datos.actividadEconomica !== null) extraido.actividad = datos.actividadEconomica;
+    if (datos.domicilio !== null) extraido.domicilio = datos.domicilio;
+    return Object.keys(extraido).length > 0 ? extraido : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Actor legible de la sesión (mismo criterio que las rutas hermanas). */
 function actorDeSesion(session: unknown): string {
