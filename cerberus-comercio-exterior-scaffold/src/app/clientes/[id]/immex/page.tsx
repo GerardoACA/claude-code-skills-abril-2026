@@ -1,16 +1,23 @@
 // CERBERUS COMERCIO EXTERIOR — página saldos IMMEX del cliente (Server Component). NO es SIDF.
 // =============================================================================
-// Archivo:  src/app/clientes/[id]/immex/page.tsx  (Incremento 23)
-// Propósito: Dejar LISTO PARA PROCESAR el control de saldos IMMEX del cliente:
-//            consume el conector ERP enchufable (@/lib/conector-erp) para leer
-//            los saldos por pedimento de importación temporal y —cuando haya
-//            integración real— los muestra con semáforo por fecha límite de
-//            retorno (C9: alerta, no bloquea). Mientras el ERP del cliente no
-//            esté conectado (NoOp), explica CLARAMENTE para qué se necesitan y
-//            qué hace falta para conectarlo.
+// Archivo:  src/app/clientes/[id]/immex/page.tsx  (Incremento 23 → 61)
+// Propósito: Control de saldos IMMEX del cliente con DOS fuentes cotejables:
+//            1) COTEJO CERBERUS (libro interno): reconstruye entradas/descargos
+//               de los MovimientoImmex capturados (InventarioImmex → materiales
+//               → movimientos), deriva saldos con derivarSaldos (motor PEPS,
+//               carril A) y los semaforiza por fecha límite de retorno. NO
+//               sustituye el SACI oficial (Anexo 24): sirve para detectar
+//               discrepancias y ALERTAR (C9).
+//            2) ERP del cliente (conector enchufable @/lib/conector-erp): los
+//               saldos que reporta el propio sistema del cliente; mientras no
+//               esté conectado (NoOp) se explica qué falta para conectarlo.
+//            Bajo las tablas se monta ImmexMovimientosIngesta (captura unitaria
+//            ENTRADA/DESCARGO + ingesta masiva CSV, contra las rutas del
+//            carril B) para alimentar el libro de cotejo.
 //
-// La consulta al ERP corre en el servidor. La identidad del cliente se resuelve
-// tenant-scoped (RLS); los saldos IMMEX vienen del ERP del cliente vía conector.
+// Las consultas corren en el servidor. La identidad del cliente y su inventario
+// de cotejo se resuelven tenant-scoped (RLS via withTenantFromSession); los
+// saldos del ERP vienen del conector.
 // =============================================================================
 
 import { redirect } from "next/navigation";
@@ -18,10 +25,36 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
 import { obtenerConectorErp, type ResultadoConsultaErp } from "@/lib/conector-erp";
+import { derivarSaldos } from "@/lib/immex/derivar-saldos";
+import type { MovimientoLite, SaldoDerivado } from "@/lib/immex/tipos";
+import { ImmexMovimientosIngesta } from "@/components/ImmexMovimientosIngesta";
 
 export const dynamic = "force-dynamic";
 
 type ClienteDatos = { id: string; rfc: string; razonSocial: string };
+
+/** Proyección tenant-scoped del inventario de cotejo (modelos del schema). */
+type InventarioCotejo = {
+  certificadoIvaIeps: boolean;
+  nivelCiva: string | null;
+  materiales: {
+    id: string;
+    fraccion: string;
+    nico: string | null;
+    descripcion: string;
+    unidadMedida: string;
+    movimientos: {
+      id: string;
+      tipo: "ENTRADA" | "DESCARGO" | "AJUSTE";
+      cantidad: unknown; // Prisma.Decimal — se proyecta con Number()
+      registradoEn: Date;
+      fechaLimiteRetorno: Date | null;
+      pedimentoNumero: string | null;
+      entradaOrigenId: string | null;
+    }[];
+  }[];
+};
+
 type PageProps = { params: Promise<{ id: string }> };
 
 /** Semáforo por fecha límite de retorno (vencido / próximo 30 días / vigente). */
@@ -36,6 +69,66 @@ function semaforoRetorno(fechaIso: string): { fondo: string; borde: string; text
   return { fondo: "#ecfdf5", borde: "#a7f3d0", texto: "#065f46", etiqueta: "vigente" };
 }
 
+/**
+ * Tabla semaforizada de saldos. La MISMA tabla sirve para las dos fuentes:
+ * SaldoDerivado (cotejo) y SaldoImmex (ERP) son forma-compatibles por contrato
+ * (src/lib/immex/tipos.ts). Reutiliza semaforoRetorno() sin cambios.
+ */
+function TablaSaldos({ saldos }: { saldos: readonly SaldoDerivado[] }) {
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "0.5rem" }}>
+      <thead>
+        <tr style={{ textAlign: "left", borderBottom: "2px solid #e2e8f0" }}>
+          <th style={{ padding: "0.5rem 0.75rem" }}>Fracción</th>
+          <th style={{ padding: "0.5rem 0.75rem" }}>Pedimento</th>
+          <th style={{ padding: "0.5rem 0.75rem" }}>Importado</th>
+          <th style={{ padding: "0.5rem 0.75rem" }}>Descargado</th>
+          <th style={{ padding: "0.5rem 0.75rem" }}>Saldo</th>
+          <th style={{ padding: "0.5rem 0.75rem" }}>Límite retorno</th>
+        </tr>
+      </thead>
+      <tbody>
+        {saldos.map((s, i) => {
+          const sem = semaforoRetorno(s.fechaLimiteRetorno);
+          return (
+            <tr key={`${s.pedimentoImportacion}-${s.fraccion}-${i}`} style={{ borderBottom: "1px solid #f1f5f9" }}>
+              <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.82rem" }}>
+                {s.fraccion}
+                <br />
+                <span style={{ color: "#94a3b8", fontSize: "0.75rem" }}>{s.descripcion}</span>
+              </td>
+              <td style={{ padding: "0.5rem 0.75rem", fontFamily: "monospace", fontSize: "0.78rem" }}>
+                {s.pedimentoImportacion}
+              </td>
+              <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.85rem" }}>{s.cantidadImportada}</td>
+              <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.85rem" }}>{s.cantidadDescargada}</td>
+              <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.85rem", fontWeight: 600 }}>
+                {s.saldoPendiente}
+              </td>
+              <td style={{ padding: "0.5rem 0.75rem" }}>
+                <span
+                  style={{
+                    display: "inline-block",
+                    padding: "0.1rem 0.55rem",
+                    borderRadius: 999,
+                    background: sem.fondo,
+                    border: `1px solid ${sem.borde}`,
+                    color: sem.texto,
+                    fontSize: "0.75rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  {s.fechaLimiteRetorno.slice(0, 10)} · {sem.etiqueta}
+                </span>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
 export default async function ImmexPage({ params }: PageProps) {
   const session = await getServerSession(authOptions);
   if (!session) {
@@ -44,15 +137,52 @@ export default async function ImmexPage({ params }: PageProps) {
 
   const { id: clienteId } = await params;
 
-  const cliente = await withTenantFromSession(
+  // Cliente + inventario de cotejo en UNA transacción tenant-scoped (RLS).
+  const datos = await withTenantFromSession(
     session,
-    async (tx): Promise<ClienteDatos | null> => {
-      return tx.cliente.findFirst({
+    async (tx): Promise<{ cliente: ClienteDatos | null; inventario: InventarioCotejo | null }> => {
+      const cliente = await tx.cliente.findFirst({
         where: { id: clienteId },
         select: { id: true, rfc: true, razonSocial: true },
       });
+      if (!cliente) return { cliente: null, inventario: null };
+
+      // Libro de cotejo: InventarioImmex (1:1 con cliente) → materiales →
+      // movimientos en orden PEPS (registradoEn ascendente).
+      const inventario = await tx.inventarioImmex.findFirst({
+        where: { clienteId: cliente.id },
+        select: {
+          certificadoIvaIeps: true,
+          nivelCiva: true,
+          materiales: {
+            orderBy: { fraccion: "asc" },
+            select: {
+              id: true,
+              fraccion: true,
+              nico: true,
+              descripcion: true,
+              unidadMedida: true,
+              movimientos: {
+                orderBy: { registradoEn: "asc" },
+                select: {
+                  id: true,
+                  tipo: true,
+                  cantidad: true,
+                  registradoEn: true,
+                  fechaLimiteRetorno: true,
+                  pedimentoNumero: true,
+                  entradaOrigenId: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      return { cliente, inventario };
     },
   );
+
+  const cliente = datos.cliente;
 
   if (!cliente) {
     return (
@@ -67,7 +197,35 @@ export default async function ImmexPage({ params }: PageProps) {
     );
   }
 
-  // Consulta al ERP/inventario IMMEX del cliente (NoOp → disponible=false).
+  // ---------------------------------------------------------------------------
+  // Fuente 1 — COTEJO CERBERUS: proyectar los movimientos persistidos a
+  // MovimientoLite y derivar los saldos con el motor PEPS (carril A). Se deriva
+  // POR MATERIAL para que un descargo jamás consuma entradas de otra fracción.
+  // ---------------------------------------------------------------------------
+  const inventario = datos.inventario;
+  const materiales = inventario?.materiales ?? [];
+  const totalMovimientos = materiales.reduce((n, m) => n + m.movimientos.length, 0);
+  const saldosCotejo: SaldoDerivado[] = materiales.flatMap((m) =>
+    derivarSaldos(
+      m.movimientos.map(
+        (mov): MovimientoLite => ({
+          id: mov.id,
+          tipo: mov.tipo,
+          cantidad: Number(mov.cantidad),
+          registradoEn: mov.registradoEn.toISOString(),
+          fechaLimiteRetorno: mov.fechaLimiteRetorno?.toISOString() ?? null,
+          pedimentoNumero: mov.pedimentoNumero,
+          entradaOrigenId: mov.entradaOrigenId,
+          descripcion: m.descripcion,
+          fraccion: m.fraccion,
+        }),
+      ),
+    ),
+  );
+
+  // ---------------------------------------------------------------------------
+  // Fuente 2 — ERP/inventario IMMEX del cliente (NoOp → disponible=false).
+  // ---------------------------------------------------------------------------
   const consulta: ResultadoConsultaErp = await obtenerConectorErp().obtenerSaldosImmex({
     rfcCliente: cliente.rfc,
   });
@@ -110,69 +268,82 @@ export default async function ImmexPage({ params }: PageProps) {
         y de saldos (<strong>Anexo 31</strong>). El SAT/ANAM cruzan los pedimentos
         de importación temporal contra esos saldos: una mercancía no retornada a
         tiempo genera <strong>créditos fiscales</strong> y detona fiscalización.
-        CERBERUS lee esos saldos del <strong>ERP del cliente</strong> para{" "}
-        <strong>alertar</strong> de saldos por vencer o sin descargo — nunca
-        bloquea ni modifica el ERP (C9).
+        CERBERUS coteja DOS fuentes — su <strong>libro interno</strong> y el{" "}
+        <strong>ERP del cliente</strong> — para <strong>alertar</strong> de saldos
+        por vencer, sin descargo o discrepantes; nunca bloquea ni modifica el ERP
+        (C9).
       </div>
 
+      {/* ==================================================================== */}
+      {/* Fuente 1: COTEJO CERBERUS (libro interno)                            */}
+      {/* ==================================================================== */}
+      <section style={{ marginTop: "2rem" }}>
+        <h2 style={{ fontSize: "1.2rem", marginBottom: "0.25rem" }}>
+          Cotejo CERBERUS (libro interno)
+          {inventario?.certificadoIvaIeps === true && (
+            <span
+              style={{
+                display: "inline-block",
+                marginLeft: "0.6rem",
+                padding: "0.1rem 0.55rem",
+                borderRadius: 999,
+                background: "#ecfdf5",
+                border: "1px solid #a7f3d0",
+                color: "#065f46",
+                fontSize: "0.72rem",
+                fontWeight: 600,
+                verticalAlign: "middle",
+              }}
+            >
+              Certificada IVA/IEPS{inventario.nivelCiva ? ` (${inventario.nivelCiva})` : ""}
+            </span>
+          )}
+        </h2>
+        <p style={{ color: "#64748b", fontSize: "0.82rem", margin: "0 0 0.5rem" }}>
+          El libro de cotejo NO sustituye el SACI oficial del cliente (Anexo 24);
+          sirve para detectar discrepancias y alertar (C9).
+        </p>
+
+        {totalMovimientos > 0 && saldosCotejo.length > 0 ? (
+          <>
+            <p style={{ color: "#475569", fontSize: "0.85rem", margin: "0 0 0.25rem" }}>
+              {saldosCotejo.length} saldo(s) derivados de {totalMovimientos} movimiento(s) en{" "}
+              {materiales.length} material(es) — orden PEPS.
+            </p>
+            <TablaSaldos saldos={saldosCotejo} />
+          </>
+        ) : (
+          <div
+            style={{
+              padding: "0.9rem 1.1rem",
+              background: "#f8fafc",
+              border: "1px dashed #cbd5e1",
+              borderRadius: 10,
+              color: "#475569",
+              fontSize: "0.9rem",
+            }}
+          >
+            <strong>Aún sin movimientos</strong>; ingresa entradas/descargos abajo.
+            Conforme se capturen pedimentos de importación temporal (entradas) y
+            retornos (descargos), aquí se derivan los saldos con PEPS y su
+            semáforo de vencimiento.
+          </div>
+        )}
+      </section>
+
+      {/* ==================================================================== */}
+      {/* Fuente 2: ERP del cliente (conector)                                 */}
+      {/* ==================================================================== */}
       {consulta.disponible ? (
         <section style={{ marginTop: "2rem" }}>
           <h2 style={{ fontSize: "1.2rem" }}>
-            Saldos por pedimento ({consulta.saldos.length}) · proveedor {consulta.proveedor}
+            ERP del cliente (conector) · {consulta.saldos.length} saldo(s) · proveedor {consulta.proveedor}
           </h2>
-          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "0.5rem" }}>
-            <thead>
-              <tr style={{ textAlign: "left", borderBottom: "2px solid #e2e8f0" }}>
-                <th style={{ padding: "0.5rem 0.75rem" }}>Fracción</th>
-                <th style={{ padding: "0.5rem 0.75rem" }}>Pedimento</th>
-                <th style={{ padding: "0.5rem 0.75rem" }}>Importado</th>
-                <th style={{ padding: "0.5rem 0.75rem" }}>Descargado</th>
-                <th style={{ padding: "0.5rem 0.75rem" }}>Saldo</th>
-                <th style={{ padding: "0.5rem 0.75rem" }}>Límite retorno</th>
-              </tr>
-            </thead>
-            <tbody>
-              {consulta.saldos.map((s, i) => {
-                const sem = semaforoRetorno(s.fechaLimiteRetorno);
-                return (
-                  <tr key={`${s.pedimentoImportacion}-${i}`} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                    <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.82rem" }}>
-                      {s.fraccion}
-                      <br />
-                      <span style={{ color: "#94a3b8", fontSize: "0.75rem" }}>{s.descripcion}</span>
-                    </td>
-                    <td style={{ padding: "0.5rem 0.75rem", fontFamily: "monospace", fontSize: "0.78rem" }}>
-                      {s.pedimentoImportacion}
-                    </td>
-                    <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.85rem" }}>{s.cantidadImportada}</td>
-                    <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.85rem" }}>{s.cantidadDescargada}</td>
-                    <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.85rem", fontWeight: 600 }}>
-                      {s.saldoPendiente}
-                    </td>
-                    <td style={{ padding: "0.5rem 0.75rem" }}>
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "0.1rem 0.55rem",
-                          borderRadius: 999,
-                          background: sem.fondo,
-                          border: `1px solid ${sem.borde}`,
-                          color: sem.texto,
-                          fontSize: "0.75rem",
-                          fontWeight: 600,
-                        }}
-                      >
-                        {s.fechaLimiteRetorno.slice(0, 10)} · {sem.etiqueta}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <TablaSaldos saldos={consulta.saldos} />
         </section>
       ) : (
         <section style={{ marginTop: "2rem" }}>
+          <h2 style={{ fontSize: "1.2rem", marginBottom: "0.5rem" }}>ERP del cliente (conector)</h2>
           <div
             style={{
               padding: "1rem 1.25rem",
@@ -182,7 +353,7 @@ export default async function ImmexPage({ params }: PageProps) {
               color: "#9a3412",
             }}
           >
-            <h2 style={{ fontSize: "1.1rem", marginTop: 0 }}>ERP del cliente no conectado</h2>
+            <h3 style={{ fontSize: "1.05rem", marginTop: 0 }}>ERP del cliente no conectado</h3>
             <p style={{ fontSize: "0.9rem" }}>{consulta.detalle}</p>
             <p style={{ fontSize: "0.9rem", marginBottom: 0 }}>
               <strong>Para conectarlo</strong> necesitamos que el cliente nos
@@ -197,6 +368,9 @@ export default async function ImmexPage({ params }: PageProps) {
           </div>
         </section>
       )}
+
+      {/* Captura unitaria + ingesta CSV hacia el libro de cotejo (carril B). */}
+      <ImmexMovimientosIngesta clienteId={cliente.id} />
     </main>
   );
 }

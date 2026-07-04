@@ -32,6 +32,7 @@ import {
 } from "@/lib/sincronizar-listados";
 import { barridoVigia, type ResumenBarrido } from "@/lib/vigia-barrido";
 import { barridoVigencias, type ResumenVigencias } from "@/lib/vigia-vigencias";
+import { barridoImmex, type ResumenImmex } from "@/lib/immex/vigia-immex";
 import { obtenerNotificador, type ResultadoNotificacion } from "@/lib/notificador";
 import { despacharAvisos, type ResultadoDespacho } from "@/lib/despacho-notificaciones";
 
@@ -46,6 +47,8 @@ type RespuestaVigia = {
   sync: ResumenFuente[];
   barrido: ResumenBarrido;
   vigencias: { tenants: number; vencidos: number; porVencer: number };
+  /** Barrido del libro de cotejo IMMEX (plazos de retorno, regla 48h). */
+  immex: { tenants: number; vencidos: number; porVencer: number };
   notificacion: ResultadoNotificacion;
   /** Enrutado a destinatarios por cliente (CEO/CFO/OCN…) suscritos por módulo. */
   despacho: ResultadoDespacho;
@@ -55,16 +58,21 @@ type RespuestaVigia = {
 // Compone el mensaje del vigía para el canal (Telegram). Devuelve null si no hay
 // nada que reportar (para no mandar pings vacíos a diario).
 // -----------------------------------------------------------------------------
-function componerMensaje(barrido: ResumenBarrido, vigencias: ResumenVigencias, fechaIso: string): string | null {
+function componerMensaje(barrido: ResumenBarrido, vigencias: ResumenVigencias, immex: ResumenImmex, fechaIso: string): string | null {
   const hayCumplimiento = barrido.alertas > 0;
   const hayVencimientos = vigencias.vencidos + vigencias.porVencer > 0;
-  if (!hayCumplimiento && !hayVencimientos) return null;
+  const hayImmex = immex.items.length > 0;
+  if (!hayCumplimiento && !hayVencimientos && !hayImmex) return null;
 
   const lineas: string[] = [`🐺 CERBERUS Vigía — ${fechaIso.slice(0, 16).replace("T", " ")}`];
   lineas.push(
     `Cumplimiento: ${barrido.alertas} alerta(s) nueva(s) · ${barrido.clientes} cliente(s) · ${barrido.tenants} tenant(s).`,
   );
   lineas.push(`Vencimientos: ${vigencias.vencidos} vencido(s), ${vigencias.porVencer} por vencer.`);
+  // Hallazgos IMMEX solo cuando los hay (para no engordar el parte diario).
+  if (hayImmex) {
+    lineas.push(`IMMEX: ${immex.vencidos} vencidos, ${immex.porVencer} por vencer.`);
+  }
 
   for (const a of barrido.detalles.slice(0, 8)) {
     lineas.push(`⚠️ ${a.rfc} · ${a.fuente}: ${a.de} → ${a.a}`);
@@ -102,9 +110,13 @@ export async function GET(request: Request): Promise<NextResponse> {
   //    clasifica y registra un evento encadenado por tenant con hallazgos.
   const vigencias = await barridoVigencias(prisma);
 
+  // 3b) Barrido IMMEX (libro de cotejo): plazos de retorno vencidos/por vencer
+  //     y regla de las 48h; registra evento "VIGIA_IMMEX" por tenant con hallazgos.
+  const immex = await barridoImmex(prisma);
+
   // 4) Notificación por Telegram (conector enchufable; NoOp si no está
   //    configurado). Solo se envía si hay algo que reportar. Fail-safe.
-  const mensaje = componerMensaje(barrido, vigencias, new Date().toISOString());
+  const mensaje = componerMensaje(barrido, vigencias, immex, new Date().toISOString());
   const notificacion: ResultadoNotificacion =
     mensaje === null
       ? { ok: false, canal: "NINGUNO", detalle: "Sin novedades: no se envió notificación." }
@@ -112,12 +124,13 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   // 5) Enrutado ESPECÍFICO: cada aviso va a los destinatarios del cliente
   //    (CEO/CFO/OCN…) suscritos a esa categoría de módulo (Inc 36).
-  const despacho = await despacharAvisos(prisma, [...barrido.avisos, ...vigencias.avisos]);
+  const despacho = await despacharAvisos(prisma, [...barrido.avisos, ...vigencias.avisos, ...immex.avisos]);
 
   const respuesta: RespuestaVigia = {
     sync,
     barrido,
     vigencias: { tenants: vigencias.tenants, vencidos: vigencias.vencidos, porVencer: vigencias.porVencer },
+    immex: { tenants: immex.tenants, vencidos: immex.vencidos, porVencer: immex.porVencer },
     notificacion,
     despacho,
   };

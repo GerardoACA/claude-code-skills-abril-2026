@@ -141,7 +141,8 @@ type SesionConTenant = { user?: { tenantId?: unknown } | null } | null | undefin
 
 export async function withTenantFromSession<T>(
   session: SesionConTenant,
-  fn: (tx: Prisma.TransactionClient) => Promise<T>
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  options?: WithTenantOptions
 ): Promise<T> {
   const tenantId = session?.user?.tenantId;
   if (typeof tenantId !== "string" || tenantId.length === 0) {
@@ -149,7 +150,7 @@ export async function withTenantFromSession<T>(
       "La sesion no contiene tenantId (claim ausente en el token verificado)."
     );
   }
-  return withTenant(tenantId, fn);
+  return withTenant(tenantId, fn, options);
 }
 
 // -----------------------------------------------------------------------------
