@@ -39,6 +39,16 @@ export interface EntradaCotejo {
   readonly urlVerificacion?: string | null;
 }
 
+/** Evidencia cruda del cotejo en vivo (respuesta del SAT), para sellarla. */
+export interface EvidenciaCotejo {
+  /** URL del validador del SAT efectivamente consultada. */
+  readonly url: string;
+  /** Código HTTP que respondió el SAT. */
+  readonly httpStatus: number;
+  /** Body (texto/HTML) tal como respondió el SAT. */
+  readonly cuerpo: string;
+}
+
 /** Resultado del cotejo en vivo. */
 export interface ResultadoCotejo {
   readonly ok: boolean;
@@ -47,6 +57,9 @@ export interface ResultadoCotejo {
   /** Sentido que reportó el SAT (si se pudo determinar); útil en cotejo por QR
    *  cuando no se ingestó texto de la opinión. */
   readonly sentidoSat?: string | null;
+  /** Respuesta cruda del SAT (solo cotejo por QR): permite sellar EVIDENCIA
+   *  (sha256 + WORM) del cotejo en vivo. Ausente si no hubo respuesta. */
+  readonly evidencia?: EvidenciaCotejo;
 }
 
 /** Contrato del conector de cotejo en vivo (Strategy enchufable). */
@@ -134,7 +147,7 @@ export class VerificadorOpinionSatQr implements VerificadorOpinionSat {
   private readonly timeoutMs: number;
 
   constructor(opciones: OpcionesQr = {}) {
-    this.timeoutMs = opciones.timeoutMs ?? 12000;
+    this.timeoutMs = opciones.timeoutMs ?? 15000;
   }
 
   async cotejar(input: EntradaCotejo): Promise<ResultadoCotejo> {
@@ -157,17 +170,27 @@ export class VerificadorOpinionSatQr implements VerificadorOpinionSat {
     try {
       const res = await fetch(url, {
         method: "GET",
-        headers: { Accept: "text/html,application/xhtml+xml" },
+        headers: {
+          Accept: "text/html,application/xhtml+xml",
+          // User-Agent de navegador normal: el validador del SAT rechaza
+          // agentes vacíos/robóticos con bloqueos anti-bot.
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        },
         signal: controlador.signal,
       });
       if (!res.ok) {
+        // Aun sin veredicto, se conserva la respuesta como evidencia del intento.
+        const cuerpoError = await res.text().catch(() => "");
         return {
           ok: false,
           estado: "NO_DISPONIBLE",
           detalle: `La verificación del SAT respondió HTTP ${res.status}.`,
+          evidencia: { url, httpStatus: res.status, cuerpo: cuerpoError },
         };
       }
       const html = await res.text();
+      const evidencia: EvidenciaCotejo = { url, httpStatus: res.status, cuerpo: html };
       // Aplanar HTML a texto comparable.
       const texto = normalizar(html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " "));
 
@@ -184,6 +207,7 @@ export class VerificadorOpinionSatQr implements VerificadorOpinionSat {
           detalle:
             "La página de verificación del SAT no muestra el folio ni el RFC de la " +
             "opinión entregada: posible documento falso o folio erróneo.",
+          evidencia,
         };
       }
 
@@ -196,6 +220,7 @@ export class VerificadorOpinionSatQr implements VerificadorOpinionSat {
           estado: "DISCREPANCIA",
           detalle: `El SAT muestra sentido ${delSat}, distinto al del documento (${declarado}).`,
           sentidoSat: delSat,
+          evidencia,
         };
       }
 
@@ -209,6 +234,7 @@ export class VerificadorOpinionSatQr implements VerificadorOpinionSat {
           `El SAT confirma la opinión vía QR (coincide ${coincidencias}` +
           `${delSat ? `, sentido ${delSat}` : ""}).`,
         sentidoSat: delSat,
+        evidencia,
       };
     } catch (e) {
       const abortado = e instanceof Error && e.name === "AbortError";

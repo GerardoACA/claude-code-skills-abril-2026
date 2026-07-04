@@ -1,19 +1,24 @@
 // CERBERUS COMERCIO EXTERIOR — API opinión 32-D ingestada + validación + cotejo. NO es SIDF.
 // =============================================================================
-// Archivo:  src/app/api/clientes/[id]/opinion/route.ts  (Incremento 22)
+// Archivo:  src/app/api/clientes/[id]/opinion/route.ts  (Incrementos 22/49B)
 // Propósito: POST que ingiere el TEXTO de la opinión de cumplimiento (32-D) que
 //            el cliente entrega impresa/PDF, valida su AUTENTICIDAD con el
 //            validador automático (@/lib/validador-opinion) para detectar
-//            falsificaciones, intenta el COTEJO EN VIVO ante el SAT por folio
-//            (@/lib/verificador-opinion-sat, NoOp hoy), persiste
+//            falsificaciones, intenta el COTEJO EN VIVO ante el SAT
+//            (@/lib/verificador-opinion-sat), persiste
 //            OpinionCumplimientoIngestada, registra un evento encadenado en
 //            bitácora y deja una VerificacionCumplimiento de la fuente
 //            OPINION_32D acorde al veredicto + sentido + cotejo. GET lista las
 //            opiniones ingestadas del cliente.
 //
-// C9: un veredicto SOSPECHOSA/NO_AUTENTICA es una ALERTA para revisión humana,
-// nunca un bloqueo. El cotejo en vivo por folio (no requiere e.firma del cliente)
-// es lo que RATIFICA de forma definitiva; hoy queda pendiente (conector NoOp).
+// Inc 49B (cotejo en vivo automático + evidencia): si el capturista no pegó la
+// URL del QR, se LEE el QR del propio PDF (@/lib/extraer-qr-pdf — solo URLs
+// *.sat.gob.mx) y con ella se coteja EN VIVO contra el validador del SAT. La
+// respuesta del SAT queda SELLADA como evidencia: sha256 del body + copia WORM
+// (almacen-worm, clave cotejo/<tenant>/<sha256>.html) si hay Blob configurado;
+// la URL del validador viaja en cotejoDetalle en formato parseable "url=…" para
+// que la UI ofrezca "Abrir en el portal del SAT". Fail-safe TOTAL: ningún fallo
+// de QR/red/WORM hace fallar la ingesta (C9).
 //
 // Multi-tenant (convención DURA): el tenantId SIEMPRE proviene del JWT verificado,
 // NUNCA del body/params. Toda escritura corre dentro de withTenantFromSession.
@@ -27,9 +32,16 @@ import { withTenantFromSession } from "@/lib/tenant-context";
 import { sha256 } from "@/lib/probatoria/hash";
 import { canonicalizar } from "@/lib/probatoria/hash-chain";
 import { analizarOpinion, type AnalisisOpinion, type SentidoOpinion } from "@/lib/validador-opinion";
-import { obtenerVerificadorOpinion, type EstadoCotejoSat } from "@/lib/verificador-opinion-sat";
+import {
+  obtenerVerificadorOpinion,
+  urlEsDelSat,
+  type EstadoCotejoSat,
+  type EvidenciaCotejo,
+} from "@/lib/verificador-opinion-sat";
 import { certificadosEmisor, verificarSelloOpinion } from "@/lib/sello-opinion";
 import { descargarCertificadoSat } from "@/lib/cert-sat-rccf";
+import { extraerQrDePdf } from "@/lib/extraer-qr-pdf";
+import { obtenerAlmacen } from "@/lib/almacen-worm";
 import { extractText, getDocumentProxy } from "unpdf";
 
 export const runtime = "nodejs";
@@ -54,15 +66,28 @@ const bodySchema = z
     { message: "Aporta el PDF de la opinión, su texto (mín. 40 caracteres) o la URL del QR." },
   );
 
-/** Extrae el texto de un PDF (base64) con unpdf. Devuelve "" si falla. */
-async function textoDePdf(pdfBase64: string): Promise<string> {
+/** Extrae el texto de un PDF (bytes) con unpdf. Devuelve "" si falla. */
+async function textoDePdf(pdfBytes: Uint8Array): Promise<string> {
   try {
-    const buf = Buffer.from(pdfBase64, "base64");
-    const pdf = await getDocumentProxy(new Uint8Array(buf));
+    const pdf = await getDocumentProxy(pdfBytes);
     const { text } = await extractText(pdf, { mergePages: true });
     return typeof text === "string" ? text : "";
   } catch {
     return "";
+  }
+}
+
+/**
+ * Lee el QR de la opinión desde el propio PDF (Inc 49B) y devuelve la primera
+ * URL del SAT encontrada. Fail-safe: cualquier fallo devuelve null; la ingesta
+ * jamás falla por esto (C9).
+ */
+async function urlQrDesdePdf(pdfBytes: Uint8Array): Promise<string | null> {
+  try {
+    const { urls } = await extraerQrDePdf(pdfBytes);
+    return urls.find((u) => urlEsDelSat(u)) ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -77,8 +102,19 @@ async function cotejarOpinion(
   analisis: AnalisisOpinion | null,
   rfcCliente: string,
   urlQr: string | undefined,
-): Promise<{ estado: EstadoCotejoSat; detalle: string; sentidoSat?: string | null }> {
+): Promise<{
+  estado: EstadoCotejoSat;
+  detalle: string;
+  sentidoSat?: string | null;
+  /** Respuesta cruda del SAT (cotejo en vivo): evidencia a sellar (Inc 49B). */
+  evidencia?: EvidenciaCotejo;
+  /** URL del validador del SAT usada/disponible (para el enlace de la UI). */
+  urlSat: string | null;
+}> {
   const urlLive = urlQr ?? analisis?.urlVerificacion ?? null;
+  // URL del validador del SAT disponible (aunque el cotejo sea criptográfico,
+  // se conserva para ofrecer "Abrir en el portal del SAT" en la UI).
+  const urlSat = urlLive !== null && urlEsDelSat(urlLive) ? urlLive : null;
 
   if (analisis && analisis.cadenaOriginal && analisis.selloBase64) {
     // Certificados candidatos: los configurados por entorno + (SAT) el
@@ -111,6 +147,7 @@ async function cotejarOpinion(
             estado: "CONFIRMADA",
             detalle: `Cotejo criptográfico (${analisis.emisor}): ${r.detalle}${nota}`,
             sentidoSat: analisis.sentido,
+            urlSat,
           };
         }
       }
@@ -118,6 +155,7 @@ async function cotejarOpinion(
         estado: "DISCREPANCIA",
         detalle: `Cotejo criptográfico (${analisis.emisor}): el sello NO valida contra el certificado del emisor (documento alterado o certificado incorrecto).`,
         sentidoSat: analisis.sentido,
+        urlSat,
       };
     }
 
@@ -129,7 +167,9 @@ async function cotejarOpinion(
       sentidoDeclarado: analisis.sentido,
       urlVerificacion: urlLive,
     });
-    if (live.estado === "CONFIRMADA" || live.estado === "DISCREPANCIA") return live;
+    if (live.estado === "CONFIRMADA" || live.estado === "DISCREPANCIA") {
+      return { ...live, urlSat };
+    }
     const notaCert =
       analisis.emisor === "SAT"
         ? "No se pudo descargar el certificado del SAT (RCCF) para el cotejo criptográfico automático; "
@@ -137,16 +177,42 @@ async function cotejarOpinion(
     return {
       estado: "NO_DISPONIBLE",
       detalle: `${notaCert}la autenticidad estructural (cadena original + sello) sí está confirmada.`,
+      urlSat,
     };
   }
 
   // Sin cadena/sello: cotejo en vivo (QR/HTTP).
-  return obtenerVerificadorOpinion().cotejar({
+  const live = await obtenerVerificadorOpinion().cotejar({
     rfc: rfcCliente,
     folio: analisis?.folio ?? null,
     sentidoDeclarado: analisis?.sentido ?? "INDETERMINADO",
     urlVerificacion: urlLive,
   });
+  return { ...live, urlSat };
+}
+
+/**
+ * Sella la EVIDENCIA del cotejo en vivo (Inc 49B): sha256 del body respondido
+ * por el SAT + copia inmutable en el almacén WORM (clave
+ * cotejo/<tenant>/<sha256>.html) si hay Blob configurado. Fail-safe: nunca lanza.
+ */
+async function sellarEvidenciaCotejo(
+  tenantId: string,
+  evidencia: EvidenciaCotejo,
+): Promise<{ sha256: string; wormUrl: string | null }> {
+  const huella = sha256(evidencia.cuerpo);
+  let wormUrl: string | null = null;
+  try {
+    const guardado = await obtenerAlmacen().guardar(
+      `cotejo/${tenantId}/${huella}.html`,
+      evidencia.cuerpo,
+      "text/html; charset=utf-8",
+    );
+    if (guardado.ok && guardado.url) wormUrl = guardado.url;
+  } catch {
+    // El almacén WORM jamás debe tumbar la ingesta; la huella sha256 basta.
+  }
+  return { sha256: huella, wormUrl };
 }
 
 type Params = { params: Promise<{ id: string }> };
@@ -166,8 +232,10 @@ type ResultadoPost =
         sentido: SentidoOpinion;
         fechaEmision: string | null;
       };
-      cotejo: { estado: EstadoCotejoSat; detalle: string };
+      cotejo: { estado: EstadoCotejoSat; detalle: string; url: string | null };
       opinion32d: { resultado: string; detalle: string };
+      /** URL del QR leída del propio PDF (Inc 49B), si se detectó. */
+      urlQrDetectada: string | null;
     };
 
 /** Normaliza un sentido reportado por el SAT al enum SentidoOpinion. */
