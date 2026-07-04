@@ -74,6 +74,62 @@ describe("filtrarUrlsSat", () => {
 });
 
 // ============================================================================
+// Conversiones de raster (Inc 57) — puras, sin QR real
+// ============================================================================
+
+describe("aRgba", () => {
+  it("convierte 1 canal (gris) a RGBA con alfa opaco", () => {
+    const gris = new Uint8Array([0, 128, 255]); // 3x1
+    const rgba = aRgba(gris, 3, 1, 1);
+    expect(Array.from(rgba)).toEqual([0, 0, 0, 255, 128, 128, 128, 255, 255, 255, 255, 255]);
+  });
+
+  it("convierte 3 canales (RGB) a RGBA con alfa opaco", () => {
+    const rgb = new Uint8Array([10, 20, 30, 40, 50, 60]); // 2x1
+    const rgba = aRgba(rgb, 2, 1, 3);
+    expect(Array.from(rgba)).toEqual([10, 20, 30, 255, 40, 50, 60, 255]);
+  });
+
+  it("con 4 canales devuelve la misma data (Uint8Array → vista clamped)", () => {
+    const origen = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]); // 2x1 RGBA
+    const rgba = aRgba(origen, 2, 1, 4);
+    expect(rgba).toBeInstanceOf(Uint8ClampedArray);
+    expect(rgba.length).toBe(8);
+    expect(Array.from(rgba)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+});
+
+describe("escalar2xNearest", () => {
+  it("duplica dimensiones replicando cada pixel (vecino más cercano)", () => {
+    // 2x1: pixel rojo y pixel azul.
+    const rgba = new Uint8ClampedArray([255, 0, 0, 255, 0, 0, 255, 255]);
+    const r = escalar2xNearest(rgba, 2, 1);
+    expect(r.width).toBe(4);
+    expect(r.height).toBe(2);
+    expect(r.data.length).toBe(4 * 2 * 4);
+    // Fila 0: rojo rojo azul azul; fila 1 idéntica.
+    const fila0 = Array.from(r.data.slice(0, 16));
+    const fila1 = Array.from(r.data.slice(16, 32));
+    expect(fila0).toEqual([255, 0, 0, 255, 255, 0, 0, 255, 0, 0, 255, 255, 0, 0, 255, 255]);
+    expect(fila1).toEqual(fila0);
+  });
+});
+
+describe("invertirRgba", () => {
+  it("invierte RGB y conserva el alfa", () => {
+    const rgba = new Uint8ClampedArray([0, 128, 255, 200]);
+    const r = invertirRgba(rgba);
+    expect(Array.from(r)).toEqual([255, 127, 0, 200]);
+  });
+
+  it("no muta el raster original", () => {
+    const rgba = new Uint8ClampedArray([10, 20, 30, 255]);
+    invertirRgba(rgba);
+    expect(Array.from(rgba)).toEqual([10, 20, 30, 255]);
+  });
+});
+
+// ============================================================================
 // extraerQrDePdf: fail-safe con basura
 // ============================================================================
 
@@ -145,5 +201,38 @@ describe("extraerQrDePdf — fallback por texto/anotaciones", () => {
     const r = await extraerQrDePdf(pdfMinimoConTexto("Ver https://phishing.example.com/opinion"));
     expect(r.urls).toEqual([]);
     expect(r.advertencias.some((a) => a.includes("phishing.example.com"))).toBe(true);
+  });
+});
+
+// ============================================================================
+// extraerQrDePdf: diagnóstico visible (Inc 57) — cada derrota deja su porqué
+// ============================================================================
+
+describe("extraerQrDePdf — advertencias específicas (Inc 57)", () => {
+  it("PDF sin imágenes explica que no hubo imágenes utilizables (posible 1-bit/vectorial)", async () => {
+    const r = await extraerQrDePdf(pdfMinimoConTexto("Sin QR ni imágenes."));
+    expect(r.advertencias.some((a) => a.includes("no contiene imágenes utilizables"))).toBe(true);
+  });
+
+  it("aunque el fallback de texto encuentre la URL, el porqué del QR fallido queda dicho", async () => {
+    const r = await extraerQrDePdf(pdfMinimoConTexto(`Consulta: ${URL_SAT}`));
+    expect(r.urls).toEqual([URL_SAT]);
+    // Se explica que la vía de imágenes no aportó nada…
+    expect(r.advertencias.some((a) => a.includes("no contiene imágenes utilizables"))).toBe(true);
+    // …y que la URL vino del respaldo (hipervínculos/texto), no de un QR.
+    expect(r.advertencias.some((a) => a.includes("hipervínculos o del texto"))).toBe(true);
+  });
+
+  it("nunca devuelve advertencias vacías cuando no hay URLs (jamás silencio)", async () => {
+    const casos = [
+      new Uint8Array(0),
+      new TextEncoder().encode("no soy pdf"),
+      pdfMinimoConTexto("Documento sin nada útil."),
+    ];
+    for (const caso of casos) {
+      const r = await extraerQrDePdf(caso);
+      expect(r.urls).toEqual([]);
+      expect(r.advertencias.length).toBeGreaterThan(0);
+    }
   });
 });
