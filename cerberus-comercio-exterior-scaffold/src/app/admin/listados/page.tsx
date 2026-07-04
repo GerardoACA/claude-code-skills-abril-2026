@@ -41,6 +41,7 @@ const ETIQUETAS_FUENTE: Record<FuenteVerificacion, string> = {
   OPINION_32D: "Opinión 32-D (cumplimiento de obligaciones)",
   CSD_17H: "CSD 17-H (sello digital)",
   SANCIONES_INT: "Sanciones internacionales (OFAC/SDN, ONU, UE, UK…)",
+  PADRON: "Padrón de Importadores (Módulo 2.1)", // [Inc 56]
 };
 
 // Última importación por fuente (solo los campos mostrados).

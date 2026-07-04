@@ -10,6 +10,11 @@
 //
 // NOTA: el catálogo es a nivel APP y se ampliará con el dictamen del agente
 // aduanal (nuevos tipos documentales se agregan aquí sin tocar el schema).
+//
+// AMPLIACIÓN arts. 36/36-A LA (lista en CERBERUS-COMERCIO-EXTERIOR/
+// 00-investigacion/documentos-pedimento-art-36-36A.md, pendiente de validación
+// por abogado): garantía de precios estimados, certificado de peso o volumen,
+// aviso de consolidado, e-document VUCEM/VUTCE y CFDI comercio exterior.
 // =============================================================================
 
 /** Tipos documentales del expediente probatorio del despacho. */
@@ -25,6 +30,11 @@ export const TIPOS_DOC_DESPACHO = [
   "CERTIFICADO_ORIGEN",
   "PERMISO_NOM",
   "ENCARGO_CONFERIDO_ACUSE",
+  "GARANTIA_PRECIOS_ESTIMADOS",
+  "CERTIFICADO_PESO_VOLUMEN",
+  "AVISO_CONSOLIDADO",
+  "EDOCUMENT_VUCEM",
+  "CFDI_COMERCIO_EXTERIOR",
   "OTRO",
 ] as const;
 export type TipoDocDespacho = (typeof TIPOS_DOC_DESPACHO)[number];
@@ -42,6 +52,16 @@ export const TIPO_DOC_DESPACHO_ETIQUETA: Readonly<Record<TipoDocDespacho, string
   CERTIFICADO_ORIGEN: "Certificado de origen",
   PERMISO_NOM: "Permiso / cumplimiento de NOM",
   ENCARGO_CONFERIDO_ACUSE: "Acuse de encargo conferido",
+  GARANTIA_PRECIOS_ESTIMADOS:
+    "Garantía en cuenta aduanera de precios estimados (arts. 36-A, 84-A y 86-A LA)",
+  CERTIFICADO_PESO_VOLUMEN:
+    "Certificado de peso o volumen — granel, tráfico marítimo (art. 36-A, fracc. I LA)",
+  AVISO_CONSOLIDADO:
+    "Aviso electrónico de pedimento consolidado (arts. 37 y 37-A LA)",
+  EDOCUMENT_VUCEM:
+    "Acuse e-document VUCEM/VUTCE — anexo digitalizado (Anexo 22, Apéndice 8, identificador ED)",
+  CFDI_COMERCIO_EXTERIOR:
+    "CFDI con complemento de comercio exterior (exportación definitiva A1)",
   OTRO: "Otro documento del despacho",
 };
 
