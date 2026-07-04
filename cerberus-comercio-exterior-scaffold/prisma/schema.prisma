@@ -515,6 +515,10 @@ model Pedimento {
 
   /// Clave de pedimento (p. ej. A1 importación definitiva).
   claveDePedimento    String    @map("clave_de_pedimento")
+  /// [Inc 55] Número de pedimento (15 dígitos normalizados, formato Anexo 22).
+  numero              String?
+  /// [Inc 55] Clave de la aduana/sección de despacho (3 dígitos, Anexo 22).
+  aduana              String?
   /// Régimen aduanero (p. ej. IMPORTACION DEFINITIVA).
   regimen             String
   /// Tipo de cambio aplicado (MXN por USD) a la fecha del pedimento.
@@ -698,6 +702,8 @@ enum FuenteVerificacion {
   SANCIONES_INT   // listas de sanciones internacionales (OFAC/SDN, ONU, UE, UK…)
                   // por ingesta manual; identifican por NOMBRE → match heurístico
                   // = SIEMPRE ALERTA con revisión humana (C9; Inc 12)
+  PADRON          // [Inc 55] Padrón de Importadores / Sectores Específicos
+                  // (dictamen aduanal: requisito Módulo 2.1 del despacho)
 }
 
 /// Resultado de la verificación por fuente.
