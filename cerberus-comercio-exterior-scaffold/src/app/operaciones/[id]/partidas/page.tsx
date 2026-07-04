@@ -133,6 +133,9 @@ export default async function PartidasPage({
             es un conector aún no configurado.
           </div>
 
+          {/* Encabezado del pedimento (Incremento 41). */}
+          <PedimentoEncabezado operacionId={operacion.id} />
+
           {/* Ingesta masiva de partidas por CSV (Incremento 39). */}
           <PartidasIngestaCsv operacionId={operacion.id} />
 
