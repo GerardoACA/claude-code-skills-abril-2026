@@ -20,6 +20,7 @@ import {
   type ExpedienteResumen,
 } from "@/components/CuestionarioKyc";
 import { DocumentosKyc } from "@/components/DocumentosKyc";
+import { extraerInicialesDeSellado, type PrecargaCuestionario } from "@/lib/kyc-precarga";
 
 // Depende de la sesión/DB: no debe pre-renderizarse en build.
 export const dynamic = "force-dynamic";
@@ -27,6 +28,8 @@ export const dynamic = "force-dynamic";
 type Cargado = {
   cliente: ClienteResumen;
   expediente: ExpedienteResumen | null;
+  /** [Inc 47] Última versión sellada del cuestionario, para precargar. */
+  iniciales: PrecargaCuestionario | null;
 };
 
 export default async function KycPage({
@@ -73,7 +76,22 @@ export default async function KycPage({
           }
         : null;
 
-      return { cliente, expediente: expedienteResumen };
+      // [Inc 47] Precarga: el payload sellado más reciente vive en la bitácora
+      // (acción KYC_SELLADO); el capturista solo modifica lo que cambió.
+      const selladoPrevio = await tx.bitacoraAuditoria.findFirst({
+        where: {
+          accion: "KYC_SELLADO",
+          payloadRef: { contains: `"clienteId":"${cliente.id}"` },
+        },
+        orderBy: { creadoEn: "desc" },
+        select: { payloadRef: true },
+      });
+      const iniciales =
+        selladoPrevio?.payloadRef != null
+          ? extraerInicialesDeSellado(selladoPrevio.payloadRef)
+          : null;
+
+      return { cliente, expediente: expedienteResumen, iniciales };
     },
   );
 
@@ -120,7 +138,11 @@ export default async function KycPage({
             <DocumentosKyc clienteId={cargado.cliente.id} />
           </section>
           <div style={{ marginTop: "2rem" }}>
-            <CuestionarioKyc cliente={cargado.cliente} expediente={cargado.expediente} />
+            <CuestionarioKyc
+              cliente={cargado.cliente}
+              expediente={cargado.expediente}
+              iniciales={cargado.iniciales}
+            />
           </div>
         </>
       )}

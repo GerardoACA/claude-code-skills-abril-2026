@@ -9,6 +9,13 @@
 //            (CfdiCartaPorteForm) más las acciones Timbrar/Cancelar por
 //            comprobante (CfdiAcciones, client components).
 //
+//            [Inc 45] Cero re-tecleo: en la MISMA transacción tenant-scoped se
+//            leen el Tenant (su RFC), el Cliente de la operación, el Pedimento
+//            más reciente (claveDePedimento, tipoCambioUsd) y la primera
+//            Partida, y se pasan como prop `precarga` a ambos forms de CFDI
+//            (Carta Porte: emisor=tenant, receptor=cliente; Comercio Exterior:
+//            emisor=cliente exportador). Los campos siguen editables (C9).
+//
 // Fail-closed: sin sesión válida => redirect a /login. Si la operación no
 // pertenece al tenant (o no existe), la lectura devuelve null y se muestra aviso.
 // En Next 16 `params` es Promise => se await.
@@ -18,7 +25,10 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
-import { CfdiCartaPorteForm } from "@/components/CfdiCartaPorteForm";
+import {
+  CfdiCartaPorteForm,
+  type PrecargaCfdi,
+} from "@/components/CfdiCartaPorteForm";
 // [Inc 16] Complemento de Comercio Exterior 1.1 (CFDI de ingreso — exportación).
 import { CfdiComercioExtForm } from "@/components/CfdiComercioExtForm";
 import { CfdiAcciones, type EstadoCfdi } from "@/components/CfdiAcciones";
@@ -63,6 +73,8 @@ type OperacionCfdi = {
     razonSocial: string;
   };
   comprobantes: ComprobanteSerializado[];
+  /** [Inc 45] Lo que la BD ya sabe para prellenar ambos forms de CFDI. */
+  precarga: PrecargaCfdi;
 };
 
 export default async function CfdiPage({
@@ -111,6 +123,49 @@ export default async function CfdiPage({
         },
       });
 
+      // [Inc 45] Precarga para cero re-tecleo (misma transacción => misma RLS):
+      // el Tenant (la RLS solo deja ver SU fila), el Pedimento más reciente y
+      // la primera Partida de la operación. Los Decimal se serializan a string
+      // (los client components no reciben Decimal por la frontera RSC).
+      const tenant = await tx.tenant.findFirst({ select: { rfc: true } });
+      const pedimento = await tx.pedimento.findFirst({
+        where: { operacionId: op.id },
+        orderBy: { creadoEn: "desc" },
+        select: { claveDePedimento: true, tipoCambioUsd: true },
+      });
+      const partida = await tx.partida.findFirst({
+        where: { operacionId: op.id },
+        orderBy: { creadoEn: "asc" },
+        select: {
+          descripcion: true,
+          fraccionDeclarada: true,
+          nico: true,
+          umt: true,
+          valorDeclarado: true,
+        },
+      });
+
+      const precarga: PrecargaCfdi = {
+        tenantRfc: tenant !== null ? tenant.rfc : null,
+        clienteRfc: op.cliente.rfc,
+        claveDePedimento: pedimento !== null ? pedimento.claveDePedimento : null,
+        tipoCambioUsd:
+          pedimento !== null ? pedimento.tipoCambioUsd.toString() : null,
+        partida:
+          partida !== null
+            ? {
+                descripcion: partida.descripcion,
+                fraccion: partida.fraccionDeclarada,
+                nico: partida.nico,
+                umt: partida.umt,
+                valorDeclarado:
+                  partida.valorDeclarado !== null
+                    ? partida.valorDeclarado.toString()
+                    : null,
+              }
+            : null,
+      };
+
       return {
         id: op.id,
         referencia: op.referencia,
@@ -127,6 +182,7 @@ export default async function CfdiPage({
           detallePac: c.detallePac,
           creadoEn: c.creadoEn.toISOString(),
         })),
+        precarga,
       };
     },
   );
@@ -289,7 +345,10 @@ export default async function CfdiPage({
             <h2 style={{ fontSize: "1.1rem" }}>
               Capturar CFDI de traslado (Carta Porte 3.1)
             </h2>
-            <CfdiCartaPorteForm operacionId={operacion.id} />
+            <CfdiCartaPorteForm
+              operacionId={operacion.id}
+              precarga={operacion.precarga}
+            />
           </section>
 
           {/* [Inc 16] Complemento de Comercio Exterior 1.1 — CFDI de INGRESO que
@@ -318,7 +377,10 @@ export default async function CfdiPage({
             <h2 style={{ fontSize: "1.1rem" }}>
               Capturar CFDI de ingreso (Comercio Exterior 1.1)
             </h2>
-            <CfdiComercioExtForm operacionId={operacion.id} />
+            <CfdiComercioExtForm
+              operacionId={operacion.id}
+              precarga={operacion.precarga}
+            />
           </section>
         </>
       )}

@@ -265,6 +265,40 @@ export async function POST(
         select: { id: true, creadoEn: true },
       });
 
+      // [Inc 47] Persistir el CONTENIDO sellado en la bitácora encadenada:
+      // el Documento solo guarda el hash; sin el payload no se puede probar
+      // qué se respondió ni PRECARGAR la siguiente captura (el capturista no
+      // debe re-teclear lo ya sellado). Evento "KYC_SELLADO" con payloadRef =
+      // JSON completo, encadenado con hashPrev (patrón del resto de la bitácora).
+      const previoBitacora = await tx.bitacoraAuditoria.findFirst({
+        orderBy: { creadoEn: "desc" },
+        select: { sha256: true },
+      });
+      const hashPrev: string | null = previoBitacora?.sha256 ?? null;
+      const eventoSellado = {
+        tenantId,
+        accion: "KYC_SELLADO",
+        actor: custodio,
+        clienteId: cliente.id,
+        documentoId: documento.id,
+        selloSha256,
+        creadoEn: ahora.toISOString(),
+        hashPrev,
+      };
+      await tx.bitacoraAuditoria.create({
+        data: {
+          tenantId,
+          actor: custodio,
+          accion: "KYC_SELLADO",
+          operacionId: null,
+          payloadRef: JSON.stringify(payloadSellado),
+          sha256: sha256(canonical(eventoSellado)),
+          hashPrev,
+          creadoEn: ahora,
+        },
+        select: { id: true },
+      });
+
       return {
         tipo: "ok",
         expedienteId: expediente.id,

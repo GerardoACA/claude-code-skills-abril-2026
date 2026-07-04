@@ -14,6 +14,7 @@
 "use client";
 
 import { useState, type CSSProperties, type ChangeEvent } from "react";
+import type { PrecargaCuestionario } from "@/lib/kyc-precarga";
 
 /** ArrayBuffer -> base64 (para enviar el PDF al prellenado). */
 function bufABase64(buf: ArrayBuffer): string {
@@ -45,6 +46,8 @@ export type ExpedienteResumen = {
 type Props = {
   cliente: ClienteResumen;
   expediente: ExpedienteResumen | null;
+  /** [Inc 47] Última versión sellada, para precargar (null si es primera captura). */
+  iniciales?: PrecargaCuestionario | null;
 };
 
 // --------------------------------------------------------------------------
@@ -94,12 +97,15 @@ type ResultadoOk = {
 
 const SECCIONES = ["Datos generales", "Materialidad", "Integridad", "Resumen"] as const;
 
-export function CuestionarioKyc({ cliente, expediente }: Props) {
+export function CuestionarioKyc({ cliente, expediente, iniciales }: Props) {
   const [seccion, setSeccion] = useState<number>(0);
   const [enviando, setEnviando] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<ResultadoOk | null>(null);
 
+  // [Inc 47] Precarga desde la última versión sellada: el capturista solo
+  // modifica lo que cambió y vuelve a sellar (nueva versión). La integridad
+  // (no-EFOS) NUNCA se precarga: se re-declara bajo protesta cada vez.
   const [datosGenerales, setDatosGenerales] = useState<DatosGenerales>({
     tipoPersona: "MORAL",
     nombreComercial: "",
@@ -113,6 +119,7 @@ export function CuestionarioKyc({ cliente, expediente }: Props) {
     correoContacto: "",
     telefonoContacto: "",
     actividadEconomica: "",
+    ...(iniciales?.datosGenerales ?? {}),
   });
 
   const [materialidad, setMaterialidad] = useState<Materialidad>({
@@ -122,6 +129,7 @@ export function CuestionarioKyc({ cliente, expediente }: Props) {
     tieneInfraestructura: false,
     descripcionInfraestructura: "",
     numeroEmpleados: "",
+    ...(iniciales?.materialidad ?? {}),
   });
 
   const [integridad, setIntegridad] = useState<Integridad>({
@@ -359,6 +367,25 @@ export function CuestionarioKyc({ cliente, expediente }: Props) {
 
   return (
     <section aria-label="Cuestionario KYC 1.4.14">
+      {/* [Inc 47] Aviso de precarga desde la última versión sellada */}
+      {iniciales !== null && iniciales !== undefined && (
+        <div
+          style={{
+            marginBottom: "1rem",
+            padding: "0.7rem 1rem",
+            background: "#ecfdf5",
+            border: "1px solid #a7f3d0",
+            borderRadius: 8,
+            color: "#065f46",
+            fontSize: "0.85rem",
+          }}
+        >
+          ✅ Formulario <strong>precargado con la última versión sellada</strong>
+          {iniciales.capturadoEn ? ` (${iniciales.capturadoEn.slice(0, 10)})` : ""}. Modifica solo lo
+          que cambió y vuelve a sellar: se creará una nueva versión; las anteriores se conservan como
+          evidencia. La manifestación de integridad se declara de nuevo cada vez.
+        </div>
+      )}
       {/* Cabecera del cliente */}
       <div
         style={{
