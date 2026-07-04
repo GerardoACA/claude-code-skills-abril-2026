@@ -9,7 +9,7 @@ import {
 
 describe("normalizarNumeroPedimento", () => {
   it("quita espacios y guiones dejando solo los dígitos", () => {
-    expect(normalizarNumeroPedimento("24 3801 5012345")).toBe("2438015012345".padEnd(13, "").slice(0));
+    expect(normalizarNumeroPedimento("24 3801 5012345")).toBe("2438015012345");
     expect(normalizarNumeroPedimento("24-38-3801-5012345")).toBe("243838015012345");
     expect(normalizarNumeroPedimento("  24 38 3801 501 2345  ")).toBe("243838015012345");
   });
