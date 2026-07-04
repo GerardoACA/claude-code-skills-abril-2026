@@ -11,6 +11,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
 import { enviarTelegramA } from "@/lib/notificador";
+import { enviarEmailA } from "@/lib/notificador-email";
 
 export const runtime = "nodejs";
 
@@ -40,9 +41,21 @@ export async function POST(_req: Request, { params }: Params): Promise<NextRespo
     return NextResponse.json({ error: "Destinatario no encontrado para este tenant" }, { status: 404 });
   }
 
+  // Canal EMAIL (Inc 37): mensaje de prueba vía Resend, fail-safe.
+  if (destinatario.canal === "EMAIL") {
+    const textoEmail =
+      `Hola ${destinatario.nombre} (${destinatario.cargo}): este es un mensaje de prueba de CERBERUS. ` +
+      `Si lo estás leyendo, tus notificaciones quedaron bien configuradas.`;
+    const resultadoEmail = await enviarEmailA(destinatario.direccion, "CERBERUS · Mensaje de prueba", textoEmail);
+    return NextResponse.json(
+      { ok: resultadoEmail.ok, detalle: resultadoEmail.detalle },
+      { status: 200 },
+    );
+  }
+
   if (destinatario.canal !== "TELEGRAM") {
     return NextResponse.json(
-      { ok: false, detalle: "El canal EMAIL aún no está conectado (conector futuro); solo TELEGRAM envía." },
+      { ok: false, detalle: `El canal ${destinatario.canal} no está soportado; solo TELEGRAM y EMAIL envían.` },
       { status: 200 },
     );
   }
