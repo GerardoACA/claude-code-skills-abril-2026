@@ -352,7 +352,8 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
 
   // Si viene el PDF, extraer su texto en el servidor (trae Cadena Original +
   // Sello). Se prefiere el texto del PDF; si falla, se usa el texto pegado.
-  const textoPdf = pdfBase64 ? await textoDePdf(pdfBase64) : "";
+  const pdfBytes = pdfBase64 ? new Uint8Array(Buffer.from(pdfBase64, "base64")) : null;
+  const textoPdf = pdfBytes ? await textoDePdf(pdfBytes) : "";
   const textoEfectivo = textoPdf.trim().length >= 40 ? textoPdf : (texto ?? "");
   if (pdfBase64 && textoPdf.trim().length < 40 && (texto ?? "").length < 40 && urlQr === undefined) {
     return NextResponse.json(
@@ -360,6 +361,11 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
       { status: 400 },
     );
   }
+
+  // Inc 49B: si el capturista NO pegó la URL del QR pero sí hay PDF, leer el QR
+  // del propio documento (extraer-qr-pdf, solo URLs *.sat.gob.mx). Fail-safe.
+  const urlQrDetectada = urlQr === undefined && pdfBytes ? await urlQrDesdePdf(pdfBytes) : null;
+  const urlQrEfectiva = urlQr ?? urlQrDetectada ?? undefined;
 
   let salida: ResultadoPost;
   try {
