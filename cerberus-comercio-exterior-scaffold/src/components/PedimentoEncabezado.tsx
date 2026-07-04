@@ -2,29 +2,34 @@
 
 // CERBERUS COMERCIO EXTERIOR — encabezado del pedimento (client). NO es SIDF.
 // =============================================================================
-// Archivo:  src/components/PedimentoEncabezado.tsx  (Incremento 41; prefill 51)
+// Archivo:  src/components/PedimentoEncabezado.tsx  (Inc 41; prefill 51; 55)
 // Propósito: Mostrar el ENCABEZADO del pedimento vigente de la operación
-//            (clave, régimen, tipo de cambio; GET al montar) o "Sin pedimento
-//            capturado", y un <details> "Capturar / editar encabezado" con el
-//            form que hace POST a /api/operaciones/[id]/pedimento/encabezado
-//            (upsert sellado + bitácora). Resultado inline ✅/⚠️ y recarga de
-//            la página tras el éxito para que todo refleje el encabezado.
-//            El modelo Pedimento NO tiene número de pedimento ni aduana: solo
-//            se capturan los campos que existen en el schema.
+//            (número, aduana, clave, régimen, tipo de cambio; GET al montar)
+//            o "Sin pedimento capturado", y un <details> "Capturar / editar
+//            encabezado" con el form que hace POST a
+//            /api/operaciones/[id]/pedimento/encabezado (upsert sellado +
+//            bitácora). Resultado inline ✅/⚠️ y recarga de la página tras el
+//            éxito para que todo refleje el encabezado.
 //            Inc 51: "Prellenar desde el pedimento (PDF)" — sube el PDF a
-//            /pedimento/prefill, rellena los campos existentes (fondo verde,
-//            el usuario revisa: C9 sugerir, nunca imponer) y muestra en un
-//            recuadro informativo lo detectado que AÚN no tiene campo en el
-//            modelo (número de pedimento, aduana, RFC, contribuciones).
+//            /pedimento/prefill y rellena los campos (fondo verde, el usuario
+//            revisa: C9 sugerir, nunca imponer).
+//            Inc 55: el modelo YA tiene `numero` y `aduana`: son campos
+//            reales del form (opcionales, validados con los validadores puros
+//            de pedimento-validacion) y el prellenado los rellena; en el
+//            recuadro "sin campo en el sistema" solo quedan las
+//            contribuciones detectadas en el cuadro de liquidación.
 // =============================================================================
 
 import { useCallback, useEffect, useState, type ChangeEvent } from "react";
+import { esClaveAduanaValida, esNumeroPedimentoValido } from "@/lib/pedimento-validacion";
 
 export type PedimentoEncabezadoProps = { operacionId: string };
 
 type Encabezado = {
   id: string;
   claveDePedimento: string;
+  numero: string | null;
+  aduana: string | null;
   regimen: string;
   tipoCambioUsd: number;
   contribucionesTotal: number;
@@ -32,7 +37,13 @@ type Encabezado = {
   creadoEn: string;
 };
 
-const CAMPOS_INICIALES = { claveDePedimento: "A1", regimen: "IMPORTACION DEFINITIVA", tipoCambioUsd: "" };
+const CAMPOS_INICIALES = {
+  claveDePedimento: "A1",
+  regimen: "IMPORTACION DEFINITIVA",
+  tipoCambioUsd: "",
+  numero: "",
+  aduana: "",
+};
 type Campos = typeof CAMPOS_INICIALES;
 
 /** Datos que devuelve /pedimento/prefill (extraídos del PDF del pedimento). */
@@ -72,6 +83,8 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
           claveDePedimento: d.pedimento.claveDePedimento,
           regimen: d.pedimento.regimen,
           tipoCambioUsd: String(d.pedimento.tipoCambioUsd),
+          numero: d.pedimento.numero ?? "",
+          aduana: d.pedimento.aduana ?? "",
         });
       }
     } catch {
@@ -153,20 +166,24 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
           sig.regimen = datos.regimen;
           nuevos.add("regimen");
         }
+        // [Inc 55] numero y aduana ya son campos reales del modelo: se
+        // prellenan en el form (el usuario revisa; C9 sugerir, nunca imponer).
+        if (typeof datos.numeroPedimento === "string" && datos.numeroPedimento.length > 0) {
+          sig.numero = datos.numeroPedimento;
+          nuevos.add("numero");
+        }
+        if (typeof datos.aduana === "string" && datos.aduana.length > 0) {
+          sig.aduana = datos.aduana;
+          nuevos.add("aduana");
+        }
         return sig;
       });
       setPrellenados(nuevos);
 
-      // 2) Lo detectado que el modelo AÚN no puede guardar: se muestra con
+      // 2) Lo detectado que el modelo AÚN no puede guardar (solo las
+      //    contribuciones del cuadro de liquidación): se muestra con
       //    honestidad (insumo para la futura migración), no se pierde en silencio.
       const sinCampo: string[] = [];
-      if (typeof datos.numeroPedimento === "string") {
-        sinCampo.push(`Número de pedimento: ${datos.numeroPedimento}`);
-      }
-      if (typeof datos.aduana === "string") sinCampo.push(`Aduana: ${datos.aduana}`);
-      if (typeof datos.rfcImportador === "string") {
-        sinCampo.push(`RFC importador: ${datos.rfcImportador}`);
-      }
       const c = datos.contribuciones;
       if (c) {
         const partes = [
@@ -208,6 +225,10 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
           claveDePedimento: campos.claveDePedimento.trim(),
           regimen: campos.regimen.trim(),
           tipoCambioUsd: campos.tipoCambioUsd.trim().length === 0 ? Number.NaN : tipoCambio,
+          // [Inc 55] Opcionales: solo se envían si el capturista los llenó
+          // (el servidor normaliza el número y valida ambos).
+          ...(campos.numero.trim().length > 0 ? { numero: campos.numero.trim() } : {}),
+          ...(campos.aduana.trim().length > 0 ? { aduana: campos.aduana.trim() } : {}),
         }),
       });
       let datos: unknown = null;
@@ -253,8 +274,16 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
     marginBottom: "0.2rem",
   };
 
+  // [Inc 55] Validación en cliente de los opcionales (mismos validadores puros
+  // que usa el servidor): solo bloquean si se llenaron y son inválidos.
+  const numeroInvalido =
+    campos.numero.trim().length > 0 && !esNumeroPedimentoValido(campos.numero.trim());
+  const aduanaInvalida =
+    campos.aduana.trim().length > 0 && !esClaveAduanaValida(campos.aduana.trim());
+
   const deshabilitado = enviando || campos.claveDePedimento.trim().length === 0 ||
-    campos.regimen.trim().length === 0 || campos.tipoCambioUsd.trim().length === 0;
+    campos.regimen.trim().length === 0 || campos.tipoCambioUsd.trim().length === 0 ||
+    numeroInvalido || aduanaInvalida;
 
   return (
     <section
@@ -287,6 +316,16 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
             fontSize: "0.85rem",
           }}
         >
+          {encabezado.numero !== null && encabezado.numero.length > 0 && (
+            <>
+              Número <strong>{encabezado.numero}</strong> ·{" "}
+            </>
+          )}
+          {encabezado.aduana !== null && encabezado.aduana.length > 0 && (
+            <>
+              Aduana <strong>{encabezado.aduana}</strong> ·{" "}
+            </>
+          )}
           Clave <strong>{encabezado.claveDePedimento}</strong> · Régimen{" "}
           <strong>{encabezado.regimen}</strong> · Tipo de cambio{" "}
           <strong>{encabezado.tipoCambioUsd.toFixed(4)}</strong> MXN/USD · Sello{" "}
@@ -334,7 +373,8 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
           </div>
         </div>
 
-        {/* Detectado en el PDF pero SIN campo en el modelo Pedimento actual:
+        {/* Detectado en el PDF pero SIN campo en el modelo Pedimento actual
+            (desde Inc 55 solo las contribuciones del cuadro de liquidación):
             se informa con honestidad (insumo para la futura migración). */}
         {detectadosSinCampo.length > 0 && (
           <div
@@ -387,7 +427,7 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
           </div>
         )}
 
-        {/* Ayuda: solo existen estos campos de encabezado en el modelo. */}
+        {/* Ayuda: campos de encabezado disponibles (numero y aduana desde Inc 55). */}
         <div
           style={{
             marginTop: "0.8rem",
@@ -401,6 +441,8 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
         >
           Captura la <strong>clave de pedimento</strong> (p. ej. A1), el{" "}
           <strong>régimen</strong> y el <strong>tipo de cambio</strong> (MXN/USD, positivo).
+          El <strong>número de pedimento</strong> (15 dígitos; se toleran espacios y guiones)
+          y la <strong>aduana</strong> (3 dígitos) son opcionales.
           Al guardar, el pedimento de la operación se crea o actualiza, se sella (SHA-256)
           y queda en bitácora. Los totales se recalculan de las partidas actuales.
         </div>
@@ -436,6 +478,41 @@ export function PedimentoEncabezado({ operacionId }: PedimentoEncabezadoProps) {
               placeholder="17.50"
               style={estiloCampo("tipoCambioUsd")}
             />
+          </div>
+        </div>
+
+        {/* [Inc 55] Número de pedimento y aduana: campos reales del modelo,
+            opcionales; el prellenado del PDF los rellena y el usuario revisa. */}
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "0.7rem", marginTop: "0.7rem" }}>
+          <div>
+            <label style={labelStyle}>Número de pedimento (15 dígitos)</label>
+            <input
+              value={campos.numero}
+              disabled={enviando}
+              onChange={cambiar("numero")}
+              placeholder="24 38 3801 5012345"
+              style={estiloCampo("numero")}
+            />
+            {numeroInvalido && (
+              <div style={{ marginTop: "0.2rem", fontSize: "0.75rem", color: "#991b1b" }}>
+                Deben ser exactamente 15 dígitos (se toleran espacios y guiones).
+              </div>
+            )}
+          </div>
+          <div>
+            <label style={labelStyle}>Aduana (3 dígitos)</label>
+            <input
+              value={campos.aduana}
+              disabled={enviando}
+              onChange={cambiar("aduana")}
+              placeholder="240"
+              style={estiloCampo("aduana")}
+            />
+            {aduanaInvalida && (
+              <div style={{ marginTop: "0.2rem", fontSize: "0.75rem", color: "#991b1b" }}>
+                Deben ser exactamente 3 dígitos (p. ej. 240).
+              </div>
+            )}
           </div>
         </div>
 

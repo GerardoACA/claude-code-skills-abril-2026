@@ -25,6 +25,12 @@
 //   - OPINION_32D y CSD_17H permanecen NO_DISPONIBLE (requieren e.firma del
 //     contribuyente; integración posterior), igual que hoy.
 //
+//   - PADRON (Incremento 56): Padrón de Importadores / Sectores Específicos
+//     (requisito del dictamen aduanal, Módulo 2.1 del despacho). Sin
+//     listado/fuente de padrón configurada todavía → NO_DISPONIBLE con
+//     detalle explícito de verificación manual (C9: el requisito queda
+//     visible sin inventar datos).
+//
 //   - SANCIONES_INT (Incremento 12): listas de sanciones internacionales
 //     (OFAC/SDN, ONU, UE, UK…) por INGESTA MANUAL. Se consulta la ÚLTIMA
 //     importación de la fuente: (i) si la entrada trae RFC y coincide EXACTO
@@ -55,6 +61,7 @@ export const FUENTES_VERIFICACION = [
   "OPINION_32D",
   "CSD_17H",
   "SANCIONES_INT",
+  "PADRON",
 ] as const;
 
 /** Unión de literales de fuente (equivalente al enum Prisma `FuenteVerificacion`). */
@@ -133,6 +140,7 @@ const ETIQUETA_FUENTE: Readonly<Record<FuenteVerificacion, string>> = {
   OPINION_32D: "art. 32-D CFF (opinión de cumplimiento)",
   CSD_17H: "art. 17-H / 17-H Bis CFF (sello digital)",
   SANCIONES_INT: "sanciones internacionales (OFAC/SDN, ONU, UE, UK…)",
+  PADRON: "Padrón de Importadores / Sectores Específicos (Módulo 2.1)",
 };
 
 // -----------------------------------------------------------------------------
@@ -430,6 +438,31 @@ function resultadoNoIntegrado(
   };
 }
 
+// -----------------------------------------------------------------------------
+// PADRON (Inc 56) — Padrón de Importadores / Sectores Específicos (requisito
+// del dictamen aduanal, Módulo 2.1 del despacho). Mismo patrón que las fuentes
+// sin URL/listado configurado (p. ej. ART_69B_BIS sin importación): mientras
+// no exista listado/fuente de padrón configurada, el resultado es
+// NO_DISPONIBLE con detalle explícito — el requisito queda VISIBLE sin
+// inventar datos (C9: alerta e informa, nunca bloquea).
+// -----------------------------------------------------------------------------
+function resultadoPadronNoConfigurado(
+  rfc: string,
+  consultadoEn: string,
+): ResultadoFuente {
+  const fuente = "PADRON" as const;
+  const resultado: ResultadoVerificacion = "NO_DISPONIBLE";
+  return {
+    fuente,
+    resultado,
+    detalle:
+      "Padrón de Importadores: fuente no configurada; verificación manual " +
+      "requerida (Módulo 2.1).",
+    snapshotSha256: snapshotSinArchivo(rfc, fuente, resultado, consultadoEn),
+    consultadoEn,
+  };
+}
+
 /**
  * Verifica el cumplimiento fiscal de un cliente/proveedor contra TODAS las
  * fuentes de `FuenteVerificacion`, devolviendo un `ResultadoFuente` por cada
@@ -441,6 +474,8 @@ function resultadoNoIntegrado(
  * contra la última lista internacional ingresada manualmente: RFC exacto →
  * mapeo normal; nombre normalizado → SIEMPRE ALERTA con revisión humana.
  * OPINION_32D y CSD_17H siguen NO_DISPONIBLE hasta su integración (e.firma).
+ * PADRON (Inc 56) es NO_DISPONIBLE con verificación manual requerida mientras
+ * no haya listado/fuente de padrón configurada.
  *
  * C9: el resultado NUNCA bloquea; solo marca y registra para que el
  * responsable decida.
@@ -469,6 +504,10 @@ export async function verificarCumplimiento(
       resultados.push(
         await verificarSancionesInternacionales(db, rfc, razonSocial, consultadoEn),
       );
+    } else if (fuente === "PADRON") {
+      // [Inc 56] Padrón de Importadores: sin fuente configurada todavía →
+      // NO_DISPONIBLE con requisito visible de verificación manual (C9).
+      resultados.push(resultadoPadronNoConfigurado(rfc, consultadoEn));
     } else if (esFuenteListado(fuente)) {
       resultados.push(await verificarContraListado(db, fuente, rfc, consultadoEn));
     } else {

@@ -1,13 +1,15 @@
 // CERBERUS COMERCIO EXTERIOR — API encabezado del pedimento (upsert). NO es SIDF.
 // =============================================================================
-// Archivo:  src/app/api/operaciones/[id]/pedimento/encabezado/route.ts  (Inc 41)
+// Archivo:  src/app/api/operaciones/[id]/pedimento/encabezado/route.ts  (Inc 41; 55)
 // Propósito: GET devuelve el pedimento vigente de la operación (el más
 //            reciente) o null si aún no se captura. POST crea o actualiza
 //            (upsert por operación) el ENCABEZADO del pedimento: clave de
-//            pedimento, régimen y tipo de cambio (los únicos campos de
-//            encabezado que existen en el modelo Pedimento; no hay `numero`
-//            ni `aduana` en el schema y NO se migra). Los totales se
-//            recalculan de las partidas actuales (0 si no hay), el registro
+//            pedimento, régimen, tipo de cambio y — desde Inc 55, ya con
+//            campos en el modelo — `numero` (15 dígitos, se normaliza con
+//            normalizarNumeroPedimento) y `aduana` (3 dígitos), ambos
+//            OPCIONALES: si vienen se validan (400 con mensaje claro si son
+//            inválidos); si no vienen, se conserva lo ya guardado. Los totales
+//            se recalculan de las partidas actuales (0 si no hay), el registro
 //            se sella (sha256 canónico) y se registra evento de bitácora
 //            "PEDIMENTO_ENCABEZADO" encadenado (sha256 + hashPrev).
 //
@@ -24,6 +26,11 @@ import { withTenantFromSession } from "@/lib/tenant-context";
 import { sha256 } from "@/lib/probatoria/hash";
 import { canonicalizar } from "@/lib/probatoria/hash-chain";
 import { agregarPedimento, type ContribucionesPartida } from "@/lib/contribuciones";
+import {
+  esClaveAduanaValida,
+  esNumeroPedimentoValido,
+  normalizarNumeroPedimento,
+} from "@/lib/pedimento-validacion";
 
 export const runtime = "nodejs";
 
@@ -41,6 +48,18 @@ const bodySchema = z.object({
   tipoCambioUsd: z
     .number({ invalid_type_error: "tipoCambioUsd debe ser numérico" })
     .positive("El tipo de cambio debe ser positivo"),
+  // [Inc 55] Número de pedimento y aduana: OPCIONALES; la validación fina
+  // (15 y 3 dígitos) se hace tras el parse con los validadores puros.
+  numero: z
+    .string({ invalid_type_error: "numero debe ser texto" })
+    .trim()
+    .max(40, "El número de pedimento excede 40 caracteres")
+    .optional(),
+  aduana: z
+    .string({ invalid_type_error: "aduana debe ser texto" })
+    .trim()
+    .max(10, "La clave de aduana excede 10 caracteres")
+    .optional(),
 });
 
 type Params = { params: Promise<{ id: string }> };
@@ -58,6 +77,8 @@ function actorDeSesion(session: unknown): string {
 type EncabezadoPedimento = {
   id: string;
   claveDePedimento: string;
+  numero: string | null;
+  aduana: string | null;
   regimen: string;
   tipoCambioUsd: number;
   contribucionesTotal: number;
@@ -82,6 +103,8 @@ export async function GET(_req: Request, { params }: Params): Promise<NextRespon
           select: {
             id: true,
             claveDePedimento: true,
+            numero: true,
+            aduana: true,
             regimen: true,
             tipoCambioUsd: true,
             contribucionesTotal: true,
@@ -93,6 +116,8 @@ export async function GET(_req: Request, { params }: Params): Promise<NextRespon
         return {
           id: p.id,
           claveDePedimento: p.claveDePedimento,
+          numero: p.numero,
+          aduana: p.aduana,
           regimen: p.regimen,
           tipoCambioUsd: Number(p.tipoCambioUsd),
           contribucionesTotal: Number(p.contribucionesTotal),
@@ -133,6 +158,36 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
   }
   const d = parseado.data;
 
+  // [Inc 55] Validación fina de número de pedimento y aduana (opcionales):
+  // cadena vacía tras trim se trata como "no enviado"; si vienen con contenido
+  // y son inválidos, 400 con mensaje claro (validadores puros, sin I/O).
+  let numeroNormalizado: string | undefined;
+  if (d.numero !== undefined && d.numero.length > 0) {
+    numeroNormalizado = normalizarNumeroPedimento(d.numero);
+    if (!esNumeroPedimentoValido(numeroNormalizado)) {
+      return NextResponse.json(
+        {
+          error:
+            "Número de pedimento inválido: deben ser exactamente 15 dígitos (se toleran espacios y guiones como separadores)",
+        },
+        { status: 400 },
+      );
+    }
+  }
+  let aduanaValidada: string | undefined;
+  if (d.aduana !== undefined && d.aduana.length > 0) {
+    if (!esClaveAduanaValida(d.aduana)) {
+      return NextResponse.json(
+        {
+          error:
+            "Clave de aduana inválida: deben ser exactamente 3 dígitos (p. ej. 240 Nuevo Laredo, 470 Veracruz)",
+        },
+        { status: 400 },
+      );
+    }
+    aduanaValidada = d.aduana;
+  }
+
   let salida: ResultadoPost;
   try {
     salida = await withTenantFromSession(session, async (tx): Promise<ResultadoPost> => {
@@ -170,12 +225,27 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
       });
       const totales = agregarPedimento(contribuciones);
 
-      // 3) Sello canónico del pedimento con el encabezado capturado.
+      // 3) Upsert por operación: se actualiza el pedimento más reciente o se
+      //    crea el primero (el modelo no tiene unique por operación; el
+      //    "vigente" es el más reciente, criterio del GET). Se lee ANTES del
+      //    sello para conservar numero/aduana ya guardados si el body no los
+      //    trae (opcionales: no enviar NO borra lo capturado).
+      const existente = await tx.pedimento.findFirst({
+        where: { operacionId: op.id },
+        orderBy: { creadoEn: "desc" },
+        select: { id: true, numero: true, aduana: true },
+      });
+      const numeroFinal: string | null = numeroNormalizado ?? existente?.numero ?? null;
+      const aduanaFinal: string | null = aduanaValidada ?? existente?.aduana ?? null;
+
+      // 4) Sello canónico del pedimento con el encabezado capturado.
       const ts = new Date();
       const selloPedimento = sha256(
         canonicalizar({
           operacionId: op.id,
           claveDePedimento: d.claveDePedimento,
+          numero: numeroFinal,
+          aduana: aduanaFinal,
           regimen: d.regimen,
           tipoCambioUsd: d.tipoCambioUsd,
           ...totales,
@@ -184,16 +254,10 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
         }),
       );
 
-      // 4) Upsert por operación: se actualiza el pedimento más reciente o se
-      //    crea el primero (el modelo no tiene unique por operación; el
-      //    "vigente" es el más reciente, criterio del GET).
-      const existente = await tx.pedimento.findFirst({
-        where: { operacionId: op.id },
-        orderBy: { creadoEn: "desc" },
-        select: { id: true },
-      });
       const datosPedimento = {
         claveDePedimento: d.claveDePedimento,
+        numero: numeroFinal,
+        aduana: aduanaFinal,
         regimen: d.regimen,
         tipoCambioUsd: d.tipoCambioUsd,
         valorAduanaTotal: totales.valorAduanaTotal,

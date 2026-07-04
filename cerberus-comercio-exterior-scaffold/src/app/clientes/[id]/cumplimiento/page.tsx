@@ -1,8 +1,11 @@
 // CERBERUS COMERCIO EXTERIOR — pagina cumplimiento (Server Component). NO es SIDF.
 // =============================================================================
 // Archivo:  src/app/clientes/[id]/cumplimiento/page.tsx
-// Proposito: Muestra el estado de cumplimiento COMPLETO del cliente cubriendo las
-//            6 fuentes (art. 69, 69-B, 69-B Bis, 49 Bis, opinion 32-D, CSD 17-H).
+// Proposito: PANTALLA UNICA de supuestos de cumplimiento del cliente (Inc 56):
+//            todas las fuentes (art. 69, 69-B, 69-B Bis, 49 Bis, opinion 32-D,
+//            CSD 17-H, sanciones internacionales y Padron de Importadores) MAS
+//            el historial 69-B (Alerta69b) fusionado desde la antigua pagina
+//            /clientes/[id]/verificacion, que ahora solo redirige aqui.
 //            Por cada fuente presenta su RESULTADO MAS RECIENTE y un semaforo de
 //            color, mas un boton "Verificar todo". Exige sesion valida (si no =>
 //            /login). Carga el Cliente y sus VerificacionCumplimiento
@@ -40,7 +43,9 @@ type FuenteVerificacion =
   | "OPINION_32D"
   | "CSD_17H"
   // [Agente SERVICIO-12, Inc 12] sanciones internacionales (OFAC/ONU/UE/UK).
-  | "SANCIONES_INT";
+  | "SANCIONES_INT"
+  // [Inc 56] Padrón de Importadores (dictamen aduanal, Módulo 2.1).
+  | "PADRON";
 
 type ResultadoVerificacion =
   | "AL_CORRIENTE"
@@ -71,6 +76,16 @@ type OverrideFila = {
   creadoEn: Date;
 };
 
+// [Inc 56] Fila del historial 69-B (Alerta69b), fusionado desde la antigua
+// pagina /clientes/[id]/verificacion (que ahora solo redirige aqui).
+type Alerta69bFila = {
+  id: string;
+  estado: string;
+  snapshotDofSha256: string | null;
+  snapshotDofFecha: Date | null;
+  creadoEn: Date;
+};
+
 // Formas de datos que la pagina renderiza (solo campos mostrados).
 type ClienteDatos = { id: string; rfc: string; razonSocial: string };
 type VerificacionFila = {
@@ -94,6 +109,8 @@ const FUENTES: { fuente: FuenteVerificacion; etiqueta: string }[] = [
   // [Agente SERVICIO-12, Inc 12] nueva fuente: ingesta manual en /admin/listados;
   // el match por NOMBRE es heuristico => siempre ALERTA con revision humana (C9).
   { fuente: "SANCIONES_INT", etiqueta: "Sanciones internacionales (OFAC/SDN, ONU, UE, UK)" },
+  // [Inc 56] Padrón de Importadores (dictamen aduanal, Módulo 2.1 del despacho).
+  { fuente: "PADRON", etiqueta: "Padrón de Importadores" },
 ];
 
 // Fuentes que se sincronizan como LISTADO del SAT (Incremento 10). Las tablas
@@ -155,13 +172,14 @@ export default async function CumplimientoPage({ params }: PageProps) {
       cliente: ClienteDatos | null;
       verificaciones: VerificacionFila[];
       overrides: OverrideFila[];
+      alertas69b: Alerta69bFila[];
     }> => {
       const cliente = await tx.cliente.findFirst({
         where: { id: clienteId },
         select: { id: true, rfc: true, razonSocial: true },
       });
       if (!cliente) {
-        return { cliente: null, verificaciones: [], overrides: [] };
+        return { cliente: null, verificaciones: [], overrides: [], alertas69b: [] };
       }
       const verificaciones = await tx.verificacionCumplimiento.findMany({
         where: { clienteId: cliente.id },
@@ -192,10 +210,24 @@ export default async function CumplimientoPage({ params }: PageProps) {
         },
         orderBy: { creadoEn: "desc" },
       });
+      // [Inc 56] Historial 69-B (Alerta69b) fusionado desde la antigua pagina
+      // /verificacion; RLS filtra por el tenant del token.
+      const alertas69b = await tx.alerta69b.findMany({
+        where: { clienteId: cliente.id },
+        select: {
+          id: true,
+          estado: true,
+          snapshotDofSha256: true,
+          snapshotDofFecha: true,
+          creadoEn: true,
+        },
+        orderBy: { creadoEn: "desc" },
+      });
       return {
         cliente,
         verificaciones: verificaciones as VerificacionFila[],
         overrides: overrides as OverrideFila[],
+        alertas69b,
       };
     },
   );
@@ -503,6 +535,71 @@ export default async function CumplimientoPage({ params }: PageProps) {
           </p>
         )}
         <SincronizarListados esAdmin={esAdmin} />
+      </section>
+
+      {/* [Inc 56] Historial 69-B (Alerta69b) FUSIONADO desde la antigua pagina
+          /clientes/[id]/verificacion (que ahora redirige aqui). Se conserva el
+          historial como registro probatorio. NO se trae el BotonVerificar69b:
+          era un STUB demostrativo (estado derivado de un patron del RFC, sin
+          datos reales) y "Verificar todo" ya cubre el art. 69-B contra los
+          listados REALES del SAT con snapshot sellado — el boton quedaba
+          redundante e inferior. */}
+      <section style={{ marginTop: "2rem" }}>
+        <h2 style={{ fontSize: "1.05rem" }}>
+          Historial 69-B (art. 69-B CFF)
+          {datos.alertas69b.length > 0 ? ` — ${datos.alertas69b.length}` : ""}
+        </h2>
+        {datos.alertas69b.length > 0 ? (
+          <>
+            <table
+              style={{ width: "100%", borderCollapse: "collapse", marginTop: "0.5rem" }}
+            >
+              <thead>
+                <tr style={{ textAlign: "left", borderBottom: "2px solid #e2e8f0" }}>
+                  <th style={{ padding: "0.5rem 0.75rem" }}>Estado</th>
+                  <th style={{ padding: "0.5rem 0.75rem" }}>Snapshot fecha</th>
+                  <th style={{ padding: "0.5rem 0.75rem" }}>SHA-256</th>
+                  <th style={{ padding: "0.5rem 0.75rem" }}>Creado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {datos.alertas69b.map((a: Alerta69bFila) => (
+                  <tr key={a.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                    <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.85rem" }}>
+                      {a.estado}
+                    </td>
+                    <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.85rem" }}>
+                      {a.snapshotDofFecha ? a.snapshotDofFecha.toISOString() : "—"}
+                    </td>
+                    <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.8rem" }}>
+                      {a.snapshotDofSha256 ? (
+                        <code style={{ fontFamily: "monospace" }}>
+                          {a.snapshotDofSha256.slice(0, 16)}…
+                        </code>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td style={{ padding: "0.5rem 0.75rem", fontSize: "0.85rem" }}>
+                      {a.creadoEn.toISOString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p style={{ color: "#94a3b8", fontSize: "0.8rem", marginTop: "0.5rem" }}>
+              Registro historico de alertas 69-B. Para verificaciones nuevas del
+              art. 69-B usa &ldquo;Verificar todo&rdquo; (consulta los listados
+              reales del SAT).
+            </p>
+          </>
+        ) : (
+          <p style={{ color: "#94a3b8", fontSize: "0.9rem", marginTop: "0.5rem" }}>
+            Sin alertas 69-B registradas para este cliente. (Ausencia de alerta =
+            sin hallazgos.) Las verificaciones nuevas del art. 69-B corren con
+            &ldquo;Verificar todo&rdquo;.
+          </p>
+        )}
       </section>
 
       {datos.verificaciones.length > 0 ? (
