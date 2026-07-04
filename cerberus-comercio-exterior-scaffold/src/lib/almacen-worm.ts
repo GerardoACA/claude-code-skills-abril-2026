@@ -62,12 +62,14 @@ export interface AlmacenWorm {
   readonly id: string;
   /**
    * Guarda `contenido` en `ruta` (content-addressed) con el `contentType`
-   * dado. NUNCA debe lanzar por condiciones esperables (sin token, ruta ya
-   * existente, fallo de red): reporta vía ResultadoGuardado.
+   * dado. Acepta texto (JSON del dossier) o binario crudo (Buffer: PDF/imagen
+   * de la bóveda documental KYC, Inc 43). NUNCA debe lanzar por condiciones
+   * esperables (sin token, ruta ya existente, fallo de red): reporta vía
+   * ResultadoGuardado.
    */
   guardar(
     ruta: string,
-    contenido: string,
+    contenido: string | Buffer,
     contentType: string,
   ): Promise<ResultadoGuardado>;
 }
@@ -87,7 +89,7 @@ export class AlmacenNoOp implements AlmacenWorm {
 
   async guardar(
     ruta: string,
-    contenido: string,
+    contenido: string | Buffer,
     contentType: string,
   ): Promise<ResultadoGuardado> {
     void ruta;
@@ -137,7 +139,7 @@ export class AlmacenVercelBlob implements AlmacenWorm {
 
   async guardar(
     ruta: string,
-    contenido: string,
+    contenido: string | Buffer,
     contentType: string,
   ): Promise<ResultadoGuardado> {
     try {
