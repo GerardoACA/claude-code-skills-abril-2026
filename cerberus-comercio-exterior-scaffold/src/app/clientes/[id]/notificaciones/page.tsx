@@ -11,6 +11,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
 import { DestinatariosNotificaciones } from "@/components/DestinatariosNotificaciones";
+import { EstadoCanales } from "@/components/EstadoCanales";
+import { evaluarEstadoCanales } from "@/lib/estado-canales";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +49,15 @@ export default async function NotificacionesPage({ params }: { params: Promise<{
         y por qué canal. El vigía enruta automáticamente cada novedad (cumplimiento, vigencias, opinión 32-D, despacho, KYC, sanciones)
         a los destinatarios suscritos a esa categoría. Telegram se envía de inmediato; el correo queda pendiente de conector.
       </div>
+
+      <EstadoCanales
+        estado={evaluarEstadoCanales({
+          telegramToken: process.env.TELEGRAM_BOT_TOKEN,
+          telegramChatId: process.env.TELEGRAM_CHAT_ID,
+          resendApiKey: process.env.RESEND_API_KEY,
+          emailFrom: process.env.EMAIL_FROM,
+        })}
+      />
 
       <DestinatariosNotificaciones clienteId={cliente.id} />
     </main>
