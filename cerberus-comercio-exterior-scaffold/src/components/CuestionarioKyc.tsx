@@ -48,11 +48,24 @@ type Props = {
 };
 
 // --------------------------------------------------------------------------
-// Estado del formulario (espejo del CuestionarioBody del route handler).
+// Estado del formulario (espejo del cuestionarioSchema del route handler).
+// [Inc 44] Auditoría 1.4.14: tipo de persona, identificación del representante
+// legal (solo MORAL) y residencia fiscal / ID fiscal extranjero.
 // --------------------------------------------------------------------------
+type TipoPersona = "FISICA" | "MORAL";
+type RepLegalTipoId = "" | "INE" | "PASAPORTE" | "CEDULA" | "OTRO";
+type ResidenciaFiscal = "MEXICO" | "EXTRANJERO";
+
 type DatosGenerales = {
+  tipoPersona: TipoPersona;
   nombreComercial: string;
   representanteLegal: string;
+  repLegalTipoIdentificacion: RepLegalTipoId;
+  repLegalNumeroIdentificacion: string;
+  repLegalPoderFecha: string; // AAAA-MM-DD u "" (opcional)
+  residenciaFiscal: ResidenciaFiscal;
+  idFiscalExtranjero: string;
+  paisResidencia: string;
   correoContacto: string;
   telefonoContacto: string;
   actividadEconomica: string;
@@ -88,8 +101,15 @@ export function CuestionarioKyc({ cliente, expediente }: Props) {
   const [resultado, setResultado] = useState<ResultadoOk | null>(null);
 
   const [datosGenerales, setDatosGenerales] = useState<DatosGenerales>({
+    tipoPersona: "MORAL",
     nombreComercial: "",
     representanteLegal: "",
+    repLegalTipoIdentificacion: "",
+    repLegalNumeroIdentificacion: "",
+    repLegalPoderFecha: "",
+    residenciaFiscal: "MEXICO",
+    idFiscalExtranjero: "",
+    paisResidencia: "",
     correoContacto: "",
     telefonoContacto: "",
     actividadEconomica: "",
@@ -196,6 +216,53 @@ export function CuestionarioKyc({ cliente, expediente }: Props) {
       setSeccion(2);
       return;
     }
+    // [Inc 44] Condicionales de la auditoría 1.4.14 (espejo del superRefine del route).
+    if (datosGenerales.tipoPersona === "MORAL") {
+      const num = datosGenerales.repLegalNumeroIdentificacion.trim();
+      if (!datosGenerales.repLegalTipoIdentificacion || num.length < 4 || num.length > 30) {
+        setError(
+          "Persona moral: indique tipo y número de identificación del representante legal (4-30 caracteres).",
+        );
+        setSeccion(0);
+        return;
+      }
+    }
+    if (datosGenerales.residenciaFiscal === "EXTRANJERO") {
+      const idf = datosGenerales.idFiscalExtranjero.trim();
+      const pais = datosGenerales.paisResidencia.trim();
+      if (idf.length < 4 || idf.length > 40 || pais.length < 2 || pais.length > 60) {
+        setError(
+          "Residencia extranjera: indique el ID fiscal (4-40 caracteres) y el país de residencia (2-60 caracteres).",
+        );
+        setSeccion(0);
+        return;
+      }
+    }
+    // Los campos condicionales que no aplican se OMITEN del payload (el schema
+    // los trata como opcionales; compatibilidad con expedientes viejos).
+    const datosGeneralesPayload = {
+      tipoPersona: datosGenerales.tipoPersona,
+      nombreComercial: datosGenerales.nombreComercial,
+      correoContacto: datosGenerales.correoContacto,
+      telefonoContacto: datosGenerales.telefonoContacto,
+      actividadEconomica: datosGenerales.actividadEconomica,
+      residenciaFiscal: datosGenerales.residenciaFiscal,
+      ...(datosGenerales.tipoPersona === "MORAL"
+        ? {
+            representanteLegal: datosGenerales.representanteLegal,
+            repLegalTipoIdentificacion: datosGenerales.repLegalTipoIdentificacion || undefined,
+            repLegalNumeroIdentificacion:
+              datosGenerales.repLegalNumeroIdentificacion.trim() || undefined,
+            repLegalPoderFecha: datosGenerales.repLegalPoderFecha || undefined,
+          }
+        : {}),
+      ...(datosGenerales.residenciaFiscal === "EXTRANJERO"
+        ? {
+            idFiscalExtranjero: datosGenerales.idFiscalExtranjero.trim() || undefined,
+            paisResidencia: datosGenerales.paisResidencia.trim() || undefined,
+          }
+        : {}),
+    };
     setEnviando(true);
     try {
       // El tenantId NO se envía: lo deriva el route handler del JWT verificado.
@@ -203,7 +270,7 @@ export function CuestionarioKyc({ cliente, expediente }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          datosGenerales,
+          datosGenerales: datosGeneralesPayload,
           materialidad,
           integridad,
           custodio: custodio.trim() || undefined,
@@ -387,6 +454,23 @@ export function CuestionarioKyc({ cliente, expediente }: Props) {
           <legend style={{ fontSize: "1.15rem", fontWeight: 700 }}>
             1. Datos generales
           </legend>
+          {/* [Inc 44] Tipo de persona: condiciona la sección del representante legal. */}
+          <label style={labelStyle}>
+            Tipo de persona
+            <select
+              style={inputStyle}
+              value={datosGenerales.tipoPersona}
+              onChange={(e) =>
+                setDatosGenerales({
+                  ...datosGenerales,
+                  tipoPersona: e.target.value as TipoPersona,
+                })
+              }
+            >
+              <option value="MORAL">Persona moral</option>
+              <option value="FISICA">Persona física</option>
+            </select>
+          </label>
           <label style={labelStyle}>
             Nombre comercial
             <input
@@ -397,16 +481,120 @@ export function CuestionarioKyc({ cliente, expediente }: Props) {
               }
             />
           </label>
+
+          {/* [Inc 44] Representante legal: solo persona MORAL (si FISICA se
+              oculta y no se exige). */}
+          {datosGenerales.tipoPersona === "MORAL" && (
+            <div
+              style={{
+                marginTop: "1rem",
+                padding: "0.9rem 1.1rem",
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: 8,
+              }}
+            >
+              <strong style={{ fontSize: "0.9rem", color: "#334155" }}>
+                Representante legal
+              </strong>
+              <label style={labelStyle}>
+                Nombre del representante legal
+                <input
+                  style={inputStyle}
+                  value={datosGenerales.representanteLegal}
+                  onChange={(e) =>
+                    setDatosGenerales({ ...datosGenerales, representanteLegal: e.target.value })
+                  }
+                />
+              </label>
+              <label style={labelStyle}>
+                Tipo de identificación
+                <select
+                  style={inputStyle}
+                  value={datosGenerales.repLegalTipoIdentificacion}
+                  onChange={(e) =>
+                    setDatosGenerales({
+                      ...datosGenerales,
+                      repLegalTipoIdentificacion: e.target.value as RepLegalTipoId,
+                    })
+                  }
+                >
+                  <option value="">— Selecciona —</option>
+                  <option value="INE">INE</option>
+                  <option value="PASAPORTE">Pasaporte</option>
+                  <option value="CEDULA">Cédula profesional</option>
+                  <option value="OTRO">Otro</option>
+                </select>
+              </label>
+              <label style={labelStyle}>
+                Número de identificación (4-30 caracteres)
+                <input
+                  style={inputStyle}
+                  value={datosGenerales.repLegalNumeroIdentificacion}
+                  onChange={(e) =>
+                    setDatosGenerales({
+                      ...datosGenerales,
+                      repLegalNumeroIdentificacion: e.target.value,
+                    })
+                  }
+                />
+              </label>
+              <label style={labelStyle}>
+                Fecha del poder notarial (opcional)
+                <input
+                  type="date"
+                  style={inputStyle}
+                  value={datosGenerales.repLegalPoderFecha}
+                  onChange={(e) =>
+                    setDatosGenerales({ ...datosGenerales, repLegalPoderFecha: e.target.value })
+                  }
+                />
+              </label>
+            </div>
+          )}
+
+          {/* [Inc 44] Residencia fiscal: si EXTRANJERO, exige ID fiscal y país. */}
           <label style={labelStyle}>
-            Representante legal
-            <input
+            Residencia fiscal
+            <select
               style={inputStyle}
-              value={datosGenerales.representanteLegal}
+              value={datosGenerales.residenciaFiscal}
               onChange={(e) =>
-                setDatosGenerales({ ...datosGenerales, representanteLegal: e.target.value })
+                setDatosGenerales({
+                  ...datosGenerales,
+                  residenciaFiscal: e.target.value as ResidenciaFiscal,
+                })
               }
-            />
+            >
+              <option value="MEXICO">México</option>
+              <option value="EXTRANJERO">Extranjero</option>
+            </select>
           </label>
+          {datosGenerales.residenciaFiscal === "EXTRANJERO" && (
+            <>
+              <label style={labelStyle}>
+                ID fiscal en el extranjero (TIN o equivalente, 4-40 caracteres)
+                <input
+                  style={inputStyle}
+                  value={datosGenerales.idFiscalExtranjero}
+                  onChange={(e) =>
+                    setDatosGenerales({ ...datosGenerales, idFiscalExtranjero: e.target.value })
+                  }
+                />
+              </label>
+              <label style={labelStyle}>
+                País de residencia fiscal
+                <input
+                  style={inputStyle}
+                  value={datosGenerales.paisResidencia}
+                  onChange={(e) =>
+                    setDatosGenerales({ ...datosGenerales, paisResidencia: e.target.value })
+                  }
+                />
+              </label>
+            </>
+          )}
+
           <label style={labelStyle}>
             Correo de contacto
             <input
@@ -596,12 +784,27 @@ export function CuestionarioKyc({ cliente, expediente }: Props) {
               <strong>Cliente:</strong> {cliente.razonSocial} ({cliente.rfc})
             </li>
             <li>
+              <strong>Tipo de persona:</strong>{" "}
+              {datosGenerales.tipoPersona === "MORAL" ? "Moral" : "Física"}
+            </li>
+            <li>
               <strong>Nombre comercial:</strong>{" "}
               {datosGenerales.nombreComercial || "—"}
             </li>
+            {datosGenerales.tipoPersona === "MORAL" && (
+              <li>
+                <strong>Representante legal:</strong>{" "}
+                {datosGenerales.representanteLegal || "—"}
+                {datosGenerales.repLegalTipoIdentificacion
+                  ? ` · ${datosGenerales.repLegalTipoIdentificacion} ${datosGenerales.repLegalNumeroIdentificacion || "—"}`
+                  : " · identificación pendiente"}
+              </li>
+            )}
             <li>
-              <strong>Representante legal:</strong>{" "}
-              {datosGenerales.representanteLegal || "—"}
+              <strong>Residencia fiscal:</strong>{" "}
+              {datosGenerales.residenciaFiscal === "MEXICO"
+                ? "México"
+                : `Extranjero (${datosGenerales.paisResidencia || "país pendiente"} · ID fiscal ${datosGenerales.idFiscalExtranjero || "pendiente"})`}
             </li>
             <li>
               <strong>Domicilio operaciones CE:</strong>{" "}

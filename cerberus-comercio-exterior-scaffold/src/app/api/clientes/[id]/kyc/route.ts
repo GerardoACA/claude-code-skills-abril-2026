@@ -173,15 +173,20 @@ export async function POST(
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
 
-  if (!esCuestionarioValido(body)) {
+  const parseado = cuestionarioSchema.safeParse(body);
+  if (!parseado.success) {
     return NextResponse.json(
-      { error: "Cuestionario incompleto o mal formado" },
+      {
+        error: "Cuestionario incompleto o mal formado",
+        detalles: parseado.error.issues.map((i) => i.message),
+      },
       { status: 400 },
     );
   }
+  const cuestionario = parseado.data;
 
   // La manifestación de integridad (art. 69-B) es obligatoria para sellar.
-  if (!body.integridad.declaraNoEfos) {
+  if (!cuestionario.integridad.declaraNoEfos) {
     return NextResponse.json(
       {
         error:
@@ -209,7 +214,10 @@ export async function POST(
       const ahora = new Date();
       const retieneHasta = new Date(ahora);
       retieneHasta.setFullYear(retieneHasta.getFullYear() + RETENCION_ANIOS_KYC);
-      const custodio = body.custodio?.trim() || custodioSesion;
+      // [Inc 44] Ciclo trienal de re-actualización (distinto de la retención):
+      // el cuestionario debe volver a capturarse a los 3 años del sellado.
+      const proximaActualizacion = proximaActualizacionKyc(ahora);
+      const custodio = cuestionario.custodio?.trim() || custodioSesion;
 
       // 2) Crear/actualizar el ExpedienteKyc1414 (1:1 con Cliente por clienteId único).
       const expediente = await tx.expedienteKyc1414.upsert({
@@ -235,11 +243,14 @@ export async function POST(
         clienteId: cliente.id,
         rfc: cliente.rfc,
         razonSocial: cliente.razonSocial,
-        datosGenerales: body.datosGenerales,
-        materialidad: body.materialidad,
-        integridad: body.integridad,
+        datosGenerales: cuestionario.datosGenerales,
+        materialidad: cuestionario.materialidad,
+        integridad: cuestionario.integridad,
         custodio,
         capturadoEn: ahora.toISOString(),
+        // [Inc 44] Ciclo trienal: próxima re-actualización del cuestionario
+        // (selladoEn + 3 años). retieneHasta (retención) NO cambia.
+        proximaActualizacion: proximaActualizacion.toISOString(),
       };
       const selloSha256 = sha256(canonical(payloadSellado));
 

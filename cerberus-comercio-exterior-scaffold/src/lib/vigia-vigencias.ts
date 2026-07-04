@@ -15,6 +15,7 @@ import type { PrismaClient, Prisma } from "@prisma/client";
 import { withTenant, listarTenantIds } from "@/lib/tenant-context";
 import { sha256 } from "@/lib/probatoria/hash";
 import { clasificarVigencia, ordenUrgencia, type EstadoVigencia } from "@/lib/vigencias";
+import { proximaActualizacionKyc } from "@/lib/kyc-vigencia";
 import type { AvisoTenant } from "@/lib/despacho-notificaciones";
 
 export interface ItemVencimiento {
@@ -48,7 +49,7 @@ async function reunirVencimientos(
   tenantId: string,
   ahora: Date,
 ): Promise<ItemVencimiento[]> {
-  const [opiniones, encargos, contratos, documentos] = await Promise.all([
+  const [opiniones, encargos, contratos, documentos, expedientesKyc] = await Promise.all([
     tx.opinionCumplimientoIngestada.findMany({
       where: { vigenciaHasta: { not: null } },
       select: { clienteId: true, folio: true, sentido: true, vigenciaHasta: true, cliente: { select: { razonSocial: true } } },
@@ -59,6 +60,11 @@ async function reunirVencimientos(
     }),
     tx.contratoEncargo.findMany({ where: { vigenteHasta: { not: null } }, select: { version: true, vigenteHasta: true } }),
     tx.documento.findMany({ where: { vence: { not: null } }, select: { tipo: true, vence: true }, take: 300 }),
+    // [Inc 44] Ciclo trienal KYC 1.4.14: el cuestionario debe re-actualizarse a
+    // los 3 años (creadoEn + 3; el modelo no guarda selladoEn aparte).
+    tx.expedienteKyc1414.findMany({
+      select: { clienteId: true, creadoEn: true, cliente: { select: { razonSocial: true } } },
+    }),
   ]);
 
   const crudos: { clienteId: string | null; tipo: string; referencia: string; contexto: string; vence: Date | null }[] = [
@@ -66,6 +72,7 @@ async function reunirVencimientos(
     ...encargos.map((e) => ({ clienteId: e.clienteId, tipo: `Encargo ${e.tipo}`, referencia: e.estado, contexto: e.cliente.razonSocial, vence: e.vigenciaFin })),
     ...contratos.map((c) => ({ clienteId: null, tipo: "Contrato de encargo", referencia: c.version, contexto: "Tenant", vence: c.vigenteHasta })),
     ...documentos.map((d) => ({ clienteId: null, tipo: "Documento", referencia: d.tipo, contexto: "—", vence: d.vence })),
+    ...expedientesKyc.map((k) => ({ clienteId: k.clienteId, tipo: "Expediente KYC 1.4.14", referencia: "Re-actualización trienal", contexto: k.cliente.razonSocial, vence: proximaActualizacionKyc(k.creadoEn) })),
   ];
 
   const items: ItemVencimiento[] = [];

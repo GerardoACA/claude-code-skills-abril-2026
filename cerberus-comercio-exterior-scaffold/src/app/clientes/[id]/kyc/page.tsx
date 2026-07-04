@@ -19,6 +19,7 @@ import {
   type ClienteResumen,
   type ExpedienteResumen,
 } from "@/components/CuestionarioKyc";
+import { DocumentosKyc } from "@/components/DocumentosKyc";
 
 // Depende de la sesión/DB: no debe pre-renderizarse en build.
 export const dynamic = "force-dynamic";
@@ -109,9 +110,19 @@ export default async function KycPage({
           .
         </div>
       ) : (
-        <div style={{ marginTop: "2rem" }}>
-          <CuestionarioKyc cliente={cargado.cliente} expediente={cargado.expediente} />
-        </div>
+        <>
+          {/* Bóveda documental del expediente (Inc 43): los documentos REALES
+              del cliente van ANTES del cuestionario. */}
+          <section style={{ marginTop: "2rem" }}>
+            <h2 style={{ fontSize: "1.2rem", marginBottom: "0.75rem" }}>
+              Documentos del expediente (1.4.14)
+            </h2>
+            <DocumentosKyc clienteId={cargado.cliente.id} />
+          </section>
+          <div style={{ marginTop: "2rem" }}>
+            <CuestionarioKyc cliente={cargado.cliente} expediente={cargado.expediente} />
+          </div>
+        </>
       )}
     </main>
   );
