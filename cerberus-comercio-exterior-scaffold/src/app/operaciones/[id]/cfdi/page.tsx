@@ -327,6 +327,48 @@ export default async function CfdiPage({
             los comprobantes quedan en borrador sellado).
           </div>
 
+          {/* [Inc 53] Semáforo del cuadre CFDI ↔ Pedimento (C9: alerta, nunca
+              bloquea). Solo se muestra si hay CFDI con Comercio Exterior 1.1. */}
+          {operacion.cuadre !== null && (
+            <div
+              style={{
+                marginTop: "1rem",
+                padding: "0.9rem 1.1rem",
+                background: COLOR_CUADRE[operacion.cuadre.estado].fondo,
+                border: `1px solid ${COLOR_CUADRE[operacion.cuadre.estado].borde}`,
+                borderRadius: 10,
+                color: COLOR_CUADRE[operacion.cuadre.estado].texto,
+                fontSize: "0.9rem",
+              }}
+            >
+              <strong>{COLOR_CUADRE[operacion.cuadre.estado].titulo}</strong>
+              {operacion.cuadre.estado === "CUADRA" &&
+                operacion.cuadre.hallazgos.length === 0 && (
+                  <span>
+                    {" "}
+                    — fracción arancelaria y valores del CFDI coinciden con el
+                    pedimento (tolerancia ±2%).
+                  </span>
+                )}
+              {operacion.cuadre.hallazgos.length > 0 && (
+                <ul style={{ margin: "0.5rem 0 0", paddingLeft: "1.2rem" }}>
+                  {operacion.cuadre.hallazgos.map((h) => (
+                    <li key={h} style={{ marginBottom: "0.25rem" }}>
+                      {h}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {operacion.cuadre.estado === "DISCREPANCIA" && (
+                <div style={{ marginTop: "0.5rem", fontSize: "0.8rem" }}>
+                  El SAT cruza el CFDI de comercio exterior contra el pedimento:
+                  una discrepancia es hallazgo de auditoría. El sistema alerta,
+                  no bloquea (C9): corrija el que esté mal antes del despacho.
+                </div>
+              )}
+            </div>
+          )}
+
           <section style={{ marginTop: "1.5rem" }}>
             <h2 style={{ fontSize: "1.1rem" }}>Comprobantes de la operación</h2>
             {operacion.comprobantes.length === 0 ? (
