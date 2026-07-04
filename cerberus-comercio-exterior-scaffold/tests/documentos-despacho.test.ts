@@ -14,8 +14,8 @@ import {
 } from "@/lib/documentos-despacho-catalogo";
 
 describe("TIPOS_DOC_DESPACHO (catálogo)", () => {
-  it("contiene los 12 tipos documentales del despacho", () => {
-    expect(TIPOS_DOC_DESPACHO).toHaveLength(12);
+  it("contiene los 17 tipos documentales del despacho", () => {
+    expect(TIPOS_DOC_DESPACHO).toHaveLength(17);
     for (const esperado of [
       "PEDIMENTO",
       "FACTURA_COMERCIAL",
@@ -28,6 +28,12 @@ describe("TIPOS_DOC_DESPACHO (catálogo)", () => {
       "CERTIFICADO_ORIGEN",
       "PERMISO_NOM",
       "ENCARGO_CONFERIDO_ACUSE",
+      // Ampliación arts. 36/36-A LA (documentos-pedimento-art-36-36A.md):
+      "GARANTIA_PRECIOS_ESTIMADOS",
+      "CERTIFICADO_PESO_VOLUMEN",
+      "AVISO_CONSOLIDADO",
+      "EDOCUMENT_VUCEM",
+      "CFDI_COMERCIO_EXTERIOR",
       "OTRO",
     ]) {
       expect(TIPOS_DOC_DESPACHO).toContain(esperado);
@@ -52,6 +58,12 @@ describe("TIPO_DOC_DESPACHO_ETIQUETA", () => {
     expect(TIPO_DOC_DESPACHO_ETIQUETA.PEDIMENTO).toBe("Pedimento");
     expect(TIPO_DOC_DESPACHO_ETIQUETA.COVE_ACUSE).toContain("COVE");
     expect(TIPO_DOC_DESPACHO_ETIQUETA.DODA).toContain("DODA");
+    // Nuevos tipos 36/36-A: la etiqueta cita el fundamento normativo.
+    expect(TIPO_DOC_DESPACHO_ETIQUETA.GARANTIA_PRECIOS_ESTIMADOS).toContain("84-A");
+    expect(TIPO_DOC_DESPACHO_ETIQUETA.CERTIFICADO_PESO_VOLUMEN).toContain("36-A");
+    expect(TIPO_DOC_DESPACHO_ETIQUETA.AVISO_CONSOLIDADO).toContain("37-A");
+    expect(TIPO_DOC_DESPACHO_ETIQUETA.EDOCUMENT_VUCEM).toContain("VUCEM");
+    expect(TIPO_DOC_DESPACHO_ETIQUETA.CFDI_COMERCIO_EXTERIOR).toContain("comercio exterior");
   });
 });
 
