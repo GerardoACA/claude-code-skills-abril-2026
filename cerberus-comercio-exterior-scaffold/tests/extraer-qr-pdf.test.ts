@@ -12,6 +12,7 @@
 //      advertencias ESPECÍFICAS cuando el PDF no aporta imágenes utilizables.
 
 import { describe, it, expect } from "vitest";
+import { extractText, getDocumentProxy } from "unpdf";
 
 import {
   aRgba,
@@ -234,5 +235,55 @@ describe("extraerQrDePdf — advertencias específicas (Inc 57)", () => {
       expect(r.urls).toEqual([]);
       expect(r.advertencias.length).toBeGreaterThan(0);
     }
+  });
+});
+
+// ============================================================================
+// extraerQrDePdf: doble lectura del mismo buffer (Inc 62 — pdfjs DETACHA)
+// ============================================================================
+// Bug de producción reproducido: el route de opinión leía el PDF DOS veces con
+// el mismo Uint8Array (texto primero, QR después). pdf.js (dentro de unpdf)
+// TRANSFIERE el ArrayBuffer que recibe getDocument hacia su worker y lo
+// DETACHA: la primera lectura mataba los bytes y la segunda diagnosticaba,
+// engañosamente, "No se pudo leer el archivo como PDF (¿está dañado o cifrado?)".
+
+describe("extraerQrDePdf — buffer detachado por una lectura previa de unpdf (Inc 62)", () => {
+  it("la lectura de texto con los MISMOS bytes los detacha; el aviso dice la verdad (no 'dañado o cifrado')", async () => {
+    const bytes = pdfMinimoConTexto(`Consulta: ${URL_SAT}`);
+    // 1ª lectura (texto), EXACTAMENTE como el route de opinión antes del Inc 62:
+    // unpdf recibe el MISMO Uint8Array (sin copia).
+    const proxy = await getDocumentProxy(bytes);
+    const { text } = await extractText(proxy, { mergePages: true });
+    expect(text).toContain("sat.gob.mx"); // el texto SÍ se leyó (como en producción)
+    // Hipótesis CONFIRMADA: pdf.js transfirió el ArrayBuffer y el buffer quedó muerto.
+    expect(bytes.length).toBe(0);
+    // 2ª lectura (QR) con el MISMO Uint8Array: los bytes son irrecuperables,
+    // pero el diagnóstico debe explicar el motivo REAL (buffer consumido por
+    // una lectura previa) en vez de culpar al archivo.
+    const r = await extraerQrDePdf(bytes);
+    expect(r.urls).toEqual([]);
+    expect(r.advertencias.some((a) => a.includes("CONSUMIDOS"))).toBe(true);
+    expect(r.advertencias.some((a) => a.includes("dañado o cifrado"))).toBe(false);
+  });
+
+  it("con copia POR CONSUMIDOR (patrón Inc 62 del route) la doble lectura texto→QR funciona", async () => {
+    const bytes = pdfMinimoConTexto(`Consulta: ${URL_SAT}`);
+    // 1ª lectura (texto) sobre SU PROPIA copia, como hace el route arreglado…
+    const proxy = await getDocumentProxy(new Uint8Array(bytes));
+    const { text } = await extractText(proxy, { mergePages: true });
+    expect(text).toContain("sat.gob.mx");
+    // …los bytes originales siguen VIVOS y el QR se extrae con el MISMO Uint8Array.
+    expect(bytes.length).toBeGreaterThan(0);
+    const r = await extraerQrDePdf(bytes);
+    expect(r.urls).toEqual([URL_SAT]);
+  });
+
+  it("extraerQrDePdf NO mata el buffer del llamador (clona antes de pdfjs) y es re-llamable", async () => {
+    const bytes = pdfMinimoConTexto(`Consulta: ${URL_SAT}`);
+    const primera = await extraerQrDePdf(bytes);
+    expect(primera.urls).toEqual([URL_SAT]);
+    expect(bytes.length).toBeGreaterThan(0); // el buffer del llamador sobrevive
+    const segunda = await extraerQrDePdf(bytes); // segunda pasada, mismos bytes
+    expect(segunda.urls).toEqual([URL_SAT]);
   });
 });

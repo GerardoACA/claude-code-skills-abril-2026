@@ -1,6 +1,6 @@
 // CERBERUS COMERCIO EXTERIOR — extracción del QR de un PDF (opinión 32-D). NO es SIDF.
 // =============================================================================
-// Archivo:  src/lib/extraer-qr-pdf.ts  (Incrementos 49A/57)
+// Archivo:  src/lib/extraer-qr-pdf.ts  (Incrementos 49A/57/62)
 // Propósito: Decodificar EN EL SERVIDOR el QR impreso en un PDF (típicamente la
 //            opinión de cumplimiento 32-D del SAT) para obtener la URL del
 //            validador del SAT sin que el capturista la teclee/pegue a mano.
@@ -234,10 +234,35 @@ function urlsEnTexto(texto: string): string[] {
 export async function extraerQrDePdf(pdf: Uint8Array): Promise<ResultadoQrPdf> {
   const advertencias: string[] = [];
 
+  // Copia REAL de los bytes ANTES de tocar pdfjs (Inc 62): getDocument (pdf.js,
+  // dentro de unpdf) TRANSFIERE el ArrayBuffer que recibe hacia su worker y lo
+  // DETACHA (el Uint8Array del llamador queda con length 0). La copia protege
+  // los bytes del LLAMADOR de esta función. Y si el llamador llega con un
+  // buffer YA detachado (otra lectura de unpdf consumió los mismos bytes, como
+  // hacía el route de opinión al extraer el texto primero), aquí se detecta y
+  // el aviso dice la VERDAD — antes caía en el catch de getDocumentProxy y
+  // diagnosticaba, engañosamente, "¿está dañado o cifrado?".
+  let bytes: Uint8Array;
+  try {
+    if ((pdf.buffer as { detached?: boolean }).detached === true) {
+      throw new Error("ArrayBuffer detachado");
+    }
+    // new Uint8Array(<vista sobre buffer detachado>) también LANZA: mismo catch.
+    bytes = new Uint8Array(pdf);
+  } catch {
+    return {
+      urls: [],
+      advertencias: [
+        "Los bytes del PDF llegaron CONSUMIDOS (pdfjs transfirió/detachó su ArrayBuffer en una lectura previa): " +
+          "pasa a extraerQrDePdf su propia copia de los bytes.",
+        "No se encontró QR en el PDF.",
+      ],
+    };
+  }
+
   let proxy: Awaited<ReturnType<typeof getDocumentProxy>> | null = null;
   try {
-    // Copia defensiva: pdfjs puede transferir/neutralizar el buffer recibido.
-    proxy = await getDocumentProxy(new Uint8Array(pdf));
+    proxy = await getDocumentProxy(bytes);
   } catch {
     return {
       urls: [],

@@ -47,7 +47,7 @@ import {
   type EvidenciaCotejo,
 } from "@/lib/verificador-opinion-sat";
 import { certificadosEmisor, verificarSelloOpinion } from "@/lib/sello-opinion";
-import { descargarCertificadoSat } from "@/lib/cert-sat-rccf";
+import { descargarCertificadoSatDetallado } from "@/lib/cert-sat-rccf";
 import { extraerQrDePdf } from "@/lib/extraer-qr-pdf";
 import { construirCotejoDetalle, sellarEvidenciaCotejo } from "@/lib/cotejo-evidencia";
 import { extractText, getDocumentProxy } from "unpdf";
@@ -137,11 +137,21 @@ async function cotejarOpinion(
     // configuración manual.
     const certs = certificadosEmisor(analisis.emisor);
     let fuenteAuto = false;
-    if (analisis.emisor === "SAT" && analisis.serieCertificado) {
-      const auto = await descargarCertificadoSat(analisis.serieCertificado);
-      if (auto) {
-        certs.push(auto);
-        fuenteAuto = true;
+    // Inc 62: si la descarga RCCF falla, se conserva el MOTIVO real (HTTP
+    // status / red / timeout + serie + URL) para que el detalle del cotejo
+    // diga POR QUÉ y no solo "no se pudo descargar".
+    let motivoRccf: string | null = null;
+    if (analisis.emisor === "SAT") {
+      if (analisis.serieCertificado) {
+        const auto = await descargarCertificadoSatDetallado(analisis.serieCertificado);
+        if (auto.certificadoB64 !== null) {
+          certs.push(auto.certificadoB64);
+          fuenteAuto = true;
+        } else {
+          motivoRccf = auto.motivo;
+        }
+      } else {
+        motivoRccf = "la cadena original no trae el número de serie del certificado";
       }
     }
 
@@ -186,7 +196,9 @@ async function cotejarOpinion(
     }
     const notaCert =
       analisis.emisor === "SAT"
-        ? "No se pudo descargar el certificado del SAT (RCCF) para el cotejo criptográfico automático; "
+        ? `No se pudo descargar el certificado del SAT (RCCF) para el cotejo criptográfico automático${
+            motivoRccf !== null ? ` — motivo: ${motivoRccf}` : ""
+          }; `
         : `Falta el certificado público del emisor (define ${analisis.emisor}_OPINION_CERT); `;
     return {
       estado: "NO_DISPONIBLE",
@@ -344,8 +356,13 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
 
   // Si viene el PDF, extraer su texto en el servidor (trae Cadena Original +
   // Sello). Se prefiere el texto del PDF; si falla, se usa el texto pegado.
+  // Inc 62: pdfjs (dentro de unpdf) TRANSFIERE al worker el ArrayBuffer que
+  // recibe getDocument y lo DETACHA — la primera lectura (texto) mataba los
+  // bytes y la extracción del QR recibía un buffer muerto ("¿está dañado o
+  // cifrado?"). Por eso CADA consumidor de unpdf recibe SU PROPIA copia
+  // (new Uint8Array(pdfBytes) = copia real) y pdfBytes queda siempre intacto.
   const pdfBytes = pdfBase64 ? new Uint8Array(Buffer.from(pdfBase64, "base64")) : null;
-  const textoPdf = pdfBytes ? await textoDePdf(pdfBytes) : "";
+  const textoPdf = pdfBytes ? await textoDePdf(new Uint8Array(pdfBytes)) : "";
   const textoEfectivo = textoPdf.trim().length >= 40 ? textoPdf : (texto ?? "");
   if (pdfBase64 && textoPdf.trim().length < 40 && (texto ?? "").length < 40 && urlQr === undefined) {
     return NextResponse.json(
@@ -360,7 +377,8 @@ export async function POST(req: Request, { params }: Params): Promise<NextRespon
   const advertencias: string[] = [];
   let urlQrDetectada: string | null = null;
   if (urlQr === undefined && pdfBytes) {
-    const qr = await urlQrDesdePdf(pdfBytes);
+    // Inc 62: copia propia también aquí (ver nota sobre el detach de pdfjs).
+    const qr = await urlQrDesdePdf(new Uint8Array(pdfBytes));
     urlQrDetectada = qr.url;
     advertencias.push(...qr.advertencias);
     if (qr.url === null) {
