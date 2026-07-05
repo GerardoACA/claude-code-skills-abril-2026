@@ -18,6 +18,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { withTenantFromSession } from "@/lib/tenant-context";
 import { RegistrarPaso, type TipoPaso } from "@/components/RegistrarPaso";
+import { PrevalidarBoton } from "@/components/PrevalidarBoton";
 
 // Depende de la sesión/DB: no debe pre-renderizarse en build.
 export const dynamic = "force-dynamic";
@@ -284,6 +285,13 @@ export default async function TramitesPage({
                 );
               })}
             </ul>
+          </section>
+
+          <section style={{ marginTop: "1.5rem" }}>
+            {/* Inc 63: prevalidador interno (C9: informa, no bloquea; no
+                sustituye al prevalidador autorizado). */}
+            <h2 style={{ fontSize: "1.1rem" }}>Prevalidación interna</h2>
+            <PrevalidarBoton operacionId={operacion.id} />
           </section>
 
           <section style={{ marginTop: "1.5rem" }}>

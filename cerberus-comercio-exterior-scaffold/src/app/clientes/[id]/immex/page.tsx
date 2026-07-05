@@ -28,6 +28,7 @@ import { obtenerConectorErp, type ResultadoConsultaErp } from "@/lib/conector-er
 import { derivarSaldos } from "@/lib/immex/derivar-saldos";
 import type { MovimientoLite, SaldoDerivado } from "@/lib/immex/tipos";
 import { ImmexMovimientosIngesta } from "@/components/ImmexMovimientosIngesta";
+import { ImmexReporteMensual } from "@/components/ImmexReporteMensual";
 
 export const dynamic = "force-dynamic";
 
@@ -371,6 +372,10 @@ export default async function ImmexPage({ params }: PageProps) {
 
       {/* Captura unitaria + ingesta CSV hacia el libro de cotejo (carril B). */}
       <ImmexMovimientosIngesta clienteId={cliente.id} />
+
+      {/* Inc 64 — reporte mensual de descargos (MVP tabular del Anexo 30, R7;
+          el layout oficial está A CONFIRMAR por abogado). */}
+      <ImmexReporteMensual clienteId={cliente.id} />
     </main>
   );
 }
