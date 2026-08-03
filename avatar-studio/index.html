@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Avatar Studio — Avatares y videos para redes</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-icon">🎬</span>
+      <div>
+        <h1>Avatar Studio</h1>
+        <p>Tu estudio personal de avatares y videos para redes</p>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button id="tab-avatar" class="tab active">🧑‍🎨 Mi avatar</button>
+      <button id="tab-video" class="tab">🎬 Crear video</button>
+    </nav>
+  </header>
+
+  <!-- ==================== SECCIÓN AVATAR ==================== -->
+  <main id="panel-avatar" class="panel">
+    <section class="controls">
+      <h2>Personaliza tu avatar</h2>
+      <p class="hint">Cambia lo que quieras: se guarda solo. Usa 🎲 si quieres inspiración.</p>
+
+      <div class="control-group">
+        <label>Tono de piel</label>
+        <div id="opt-skin" class="swatches"></div>
+      </div>
+
+      <div class="control-group">
+        <label>Peinado</label>
+        <div id="opt-hair" class="chips"></div>
+      </div>
+
+      <div class="control-group">
+        <label>Color de cabello</label>
+        <div id="opt-hairColor" class="swatches"></div>
+      </div>
+
+      <div class="control-group">
+        <label>Ojos</label>
+        <div id="opt-eyes" class="chips"></div>
+      </div>
+
+      <div class="control-group">
+        <label>Boca</label>
+        <div id="opt-mouth" class="chips"></div>
+      </div>
+
+      <div class="control-group">
+        <label>Vello facial</label>
+        <div id="opt-facial" class="chips"></div>
+      </div>
+
+      <div class="control-group">
+        <label>Lentes</label>
+        <div id="opt-glasses" class="chips"></div>
+      </div>
+
+      <div class="control-group">
+        <label>Ropa</label>
+        <div id="opt-clothes" class="chips"></div>
+      </div>
+
+      <div class="control-group">
+        <label>Color de ropa</label>
+        <div id="opt-clothesColor" class="swatches"></div>
+      </div>
+
+      <div class="control-group">
+        <label>Fondo</label>
+        <div id="opt-bg" class="swatches"></div>
+      </div>
+    </section>
+
+    <section class="preview">
+      <div id="avatar-preview" class="avatar-frame"></div>
+      <div class="actions">
+        <button id="btn-random" class="btn secondary">🎲 Sorpréndeme</button>
+        <button id="btn-download-512" class="btn">⬇️ PNG 512px</button>
+        <button id="btn-download-1024" class="btn">⬇️ PNG 1024px (HD)</button>
+      </div>
+      <p class="hint center">Perfecto para foto de perfil de Instagram, TikTok, X o WhatsApp.</p>
+    </section>
+  </main>
+
+  <!-- ==================== SECCIÓN VIDEO ==================== -->
+  <main id="panel-video" class="panel hidden">
+    <section class="controls">
+      <h2>Arma tu video</h2>
+      <p class="hint">Elige una plantilla, toca el texto para editarlo y descarga. Así de fácil.</p>
+
+      <div class="control-group">
+        <label>Plantilla rápida</label>
+        <div id="opt-template" class="chips"></div>
+      </div>
+
+      <div class="control-group">
+        <label>Formato</label>
+        <div id="opt-format" class="chips"></div>
+      </div>
+
+      <div class="control-group">
+        <label>Tu @usuario (aparece abajo del video)</label>
+        <input id="inp-handle" type="text" placeholder="@tuusuario" maxlength="30">
+      </div>
+
+      <div class="control-group">
+        <label>Escenas <span class="hint-inline">(toca una para editarla)</span></label>
+        <div id="slide-list" class="slide-list"></div>
+        <div class="row">
+          <button id="btn-add-slide" class="btn small secondary">＋ Agregar escena</button>
+        </div>
+      </div>
+
+      <div id="slide-editor" class="slide-editor">
+        <h3>Editar escena <span id="slide-num"></span></h3>
+        <div class="control-group">
+          <label>Emoji (opcional)</label>
+          <input id="inp-emoji" type="text" placeholder="✨" maxlength="4">
+        </div>
+        <div class="control-group">
+          <label>Texto principal</label>
+          <textarea id="inp-title" rows="2" placeholder="Escribe aquí…"></textarea>
+        </div>
+        <div class="control-group">
+          <label>Texto secundario (opcional)</label>
+          <textarea id="inp-subtitle" rows="2" placeholder="Un detalle más…"></textarea>
+        </div>
+        <div class="control-group">
+          <label>Fondo de la escena</label>
+          <div id="opt-slide-bg" class="swatches"></div>
+        </div>
+        <div class="control-group">
+          <label>Animación</label>
+          <div id="opt-anim" class="chips"></div>
+        </div>
+        <div class="control-group row wrap">
+          <label class="check"><input id="chk-avatar" type="checkbox"> Mostrar mi avatar</label>
+          <label class="inline">Duración
+            <select id="sel-duration">
+              <option value="2">2 s</option>
+              <option value="3" selected>3 s</option>
+              <option value="4">4 s</option>
+              <option value="5">5 s</option>
+              <option value="6">6 s</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <button id="btn-slide-up" class="btn small secondary">↑ Subir</button>
+          <button id="btn-slide-down" class="btn small secondary">↓ Bajar</button>
+          <button id="btn-slide-del" class="btn small danger">🗑 Eliminar</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="preview">
+      <canvas id="video-canvas"></canvas>
+      <div class="actions">
+        <button id="btn-play" class="btn secondary">▶️ Vista previa</button>
+        <button id="btn-export" class="btn">⬇️ Descargar video</button>
+      </div>
+      <p id="export-status" class="hint center"></p>
+    </section>
+  </main>
+
+  <footer class="footbar">
+    Hecho para uso personal · Todo se procesa y guarda en tu navegador — nada sale de tu dispositivo.
+  </footer>
+
+  <script src="js/avatar.js"></script>
+  <script src="js/video.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
